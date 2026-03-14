@@ -65,6 +65,19 @@
     <Button shape="round" size="small" onclick={applyEdits} loading={editManager.isApplyingEdits}>{$t('save')}</Button>
   </HStack>
 
+  <!-- Tool Tabs -->
+  <HStack class="px-4 mt-4 gap-2">
+    {#each editManager.tools as tool}
+      <IconButton
+        shape="round"
+        variant={editManager.selectedTool?.type === tool.type ? 'filled' : 'outline'}
+        color={editManager.selectedTool?.type === tool.type ? 'primary' : 'secondary'}
+        icon={tool.icon}
+        onclick={() => editManager.activateTool(tool.type, asset, { edits: [] })}
+      />
+    {/each}
+  </HStack>
+
   <section>
     {#if editManager.selectedTool}
       <editManager.selectedTool.component />
