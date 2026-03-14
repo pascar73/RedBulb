@@ -27,6 +27,17 @@ class DevelopManager implements EditToolManager {
 
   edits = $derived.by(() => this.getEdits());
 
+  // Reactive object for WebGPU rendering
+  params = $derived.by(() => ({
+    exposure: this.exposure,
+    contrast: this.contrast,
+    highlights: this.highlights,
+    shadows: this.shadows,
+    whites: this.whites,
+    blacks: this.blacks,
+    brightness: this.brightness
+  }));
+
   async onActivate(asset: AssetResponseDto, edits: EditActions): Promise<void> {
     // No special activation needed for now
     // In future sprints, we'll load existing develop edits from the server

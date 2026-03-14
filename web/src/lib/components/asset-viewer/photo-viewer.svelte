@@ -6,8 +6,10 @@
   import FaceEditor from '$lib/components/asset-viewer/face-editor/face-editor.svelte';
   import OcrBoundingBox from '$lib/components/asset-viewer/ocr-bounding-box.svelte';
   import AssetViewerEvents from '$lib/components/AssetViewerEvents.svelte';
+  import EditorCanvas from '$lib/components/asset-viewer/editor/editor-canvas.svelte';
   import { assetViewerManager } from '$lib/managers/asset-viewer-manager.svelte';
   import { castManager } from '$lib/managers/cast-manager.svelte';
+  import { editManager, EditToolType } from '$lib/managers/edit/edit-manager.svelte';
   import { isFaceEditMode } from '$lib/stores/face-edit.svelte';
   import { ocrManager } from '$lib/stores/ocr.svelte';
   import { boundingBoxesArray, type Faces } from '$lib/stores/people.store';
@@ -146,6 +148,8 @@
     }
   };
 
+  const isInDevelopMode = $derived(editManager.selectedTool?.type === EditToolType.Develop);
+
   const blurredSlideshow = $derived(
     $slideshowState !== SlideshowState.None && $slideshowLook === SlideshowLook.BlurredBackground && !!asset.thumbhash,
   );
@@ -214,10 +218,13 @@
   ondblclick={onZoom}
   onmousemove={handleImageMouseMove}
   onmouseleave={handleImageMouseLeave}
-  use:zoomImageAction={{ disabled: isFaceEditMode.value || ocrManager.showOverlay }}
+  use:zoomImageAction={{ disabled: isFaceEditMode.value || ocrManager.showOverlay || isInDevelopMode }}
   {...useSwipe((event) => onSwipe?.(event))}
 >
-  <AdaptiveImage
+  {#if isInDevelopMode && currentPreviewUrl}
+    <EditorCanvas {asset} previewUrl={currentPreviewUrl} />
+  {:else}
+    <AdaptiveImage
     {asset}
     {sharedLink}
     {container}
@@ -263,6 +270,7 @@
       {/each}
     {/snippet}
   </AdaptiveImage>
+  {/if}
 
   {#if isFaceEditMode.value && assetViewerManager.imgRef}
     <FaceEditor htmlElement={assetViewerManager.imgRef} {containerWidth} {containerHeight} assetId={asset.id} />
