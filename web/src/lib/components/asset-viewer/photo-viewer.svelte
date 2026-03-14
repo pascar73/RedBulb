@@ -6,10 +6,10 @@
   import FaceEditor from '$lib/components/asset-viewer/face-editor/face-editor.svelte';
   import OcrBoundingBox from '$lib/components/asset-viewer/ocr-bounding-box.svelte';
   import AssetViewerEvents from '$lib/components/AssetViewerEvents.svelte';
-  import EditorCanvas from '$lib/components/asset-viewer/editor/editor-canvas.svelte';
   import { assetViewerManager } from '$lib/managers/asset-viewer-manager.svelte';
   import { castManager } from '$lib/managers/cast-manager.svelte';
   import { editManager, EditToolType } from '$lib/managers/edit/edit-manager.svelte';
+  import { developManager } from '$lib/managers/edit/develop-manager.svelte';
   import { isFaceEditMode } from '$lib/stores/face-edit.svelte';
   import { ocrManager } from '$lib/stores/ocr.svelte';
   import { boundingBoxesArray, type Faces } from '$lib/stores/people.store';
@@ -150,6 +150,22 @@
 
   const isInDevelopMode = $derived(editManager.selectedTool?.type === EditToolType.Develop);
 
+  // CSS filter preview: maps develop sliders to CSS filters for instant visual feedback
+  const cssFilterStyle = $derived.by(() => {
+    if (!isInDevelopMode) return '';
+    const p = developManager.params;
+    // Map adjustment params to CSS filter values
+    // exposure: -5..+5 → brightness 0.0..6.0 (0 = 1.0)
+    const brightness = Math.pow(2, p.exposure * 0.5) * (1 + p.brightness);
+    // contrast: -1..+1 → contrast 0.0..2.0 (0 = 1.0)  
+    const contrast = 1 + p.contrast;
+    // highlights/shadows/whites/blacks affect brightness subtly
+    const highlightBoost = 1 + (p.highlights * 0.15) + (p.whites * 0.1);
+    const shadowBoost = 1 + (p.shadows * 0.1) + (p.blacks * 0.05);
+    const totalBrightness = brightness * highlightBoost * shadowBoost;
+    return `filter: brightness(${totalBrightness.toFixed(3)}) contrast(${contrast.toFixed(3)});`;
+  });
+
   const blurredSlideshow = $derived(
     $slideshowState !== SlideshowState.None && $slideshowLook === SlideshowLook.BlurredBackground && !!asset.thumbhash,
   );
@@ -212,6 +228,7 @@
 <div
   bind:this={element}
   class="relative h-full w-full select-none"
+  style={cssFilterStyle}
   bind:clientWidth={containerWidth}
   bind:clientHeight={containerHeight}
   role="presentation"
@@ -221,9 +238,6 @@
   use:zoomImageAction={{ disabled: isFaceEditMode.value || ocrManager.showOverlay || isInDevelopMode }}
   {...useSwipe((event) => onSwipe?.(event))}
 >
-  {#if isInDevelopMode && currentPreviewUrl}
-    <EditorCanvas {asset} previewUrl={currentPreviewUrl} />
-  {:else}
     <AdaptiveImage
     {asset}
     {sharedLink}
@@ -270,7 +284,6 @@
       {/each}
     {/snippet}
   </AdaptiveImage>
-  {/if}
 
   {#if isFaceEditMode.value && assetViewerManager.imgRef}
     <FaceEditor htmlElement={assetViewerManager.imgRef} {containerWidth} {containerHeight} assetId={asset.id} />

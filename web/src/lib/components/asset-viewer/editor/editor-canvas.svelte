@@ -11,9 +11,8 @@
 
   let { asset, previewUrl }: Props = $props();
 
-  let canvas: HTMLCanvasElement;
+  let canvas = $state<HTMLCanvasElement | undefined>(undefined);
   let engine: WebGPUEngine | null = null;
-  let imageElement: HTMLImageElement | null = null;
   let imageBitmap: ImageBitmap | null = null;
   
   let webgpuSupported = $state(true);
@@ -47,8 +46,8 @@
       // Load image
       await loadImage();
 
-      // Initial render
-      if (imageBitmap) {
+      // Initial render with defaults
+      if (imageBitmap && canvas) {
         await renderImage(developManager.params);
       }
     } catch (err) {
@@ -70,7 +69,6 @@
       
       img.onload = async () => {
         try {
-          imageElement = img;
           imageBitmap = await createImageBitmap(img);
           imageLoaded = true;
           resolve();
@@ -131,7 +129,7 @@
     <canvas
       bind:this={canvas}
       class="max-w-full max-h-full object-contain"
-    />
+    ></canvas>
   </div>
 {/if}
 

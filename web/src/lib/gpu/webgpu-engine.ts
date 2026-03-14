@@ -15,7 +15,7 @@ export interface AdjustmentParams {
 
 export class WebGPUEngine {
   private device: GPUDevice | null = null;
-  private queue: GPUCommandQueue | null = null;
+  private queue: GPUQueue | null = null;
   private pipeline: GPUComputePipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   
