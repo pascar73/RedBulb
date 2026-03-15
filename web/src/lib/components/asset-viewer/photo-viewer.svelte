@@ -154,16 +154,58 @@
   const cssFilterStyle = $derived.by(() => {
     if (!isInDevelopMode) return '';
     const p = developManager.params;
-    // Map adjustment params to CSS filter values
-    // exposure: -5..+5 → brightness 0.0..6.0 (0 = 1.0)
-    const brightness = Math.pow(2, p.exposure * 0.5) * (1 + p.brightness);
-    // contrast: -1..+1 → contrast 0.0..2.0 (0 = 1.0)  
+    
+    // exposure: -5..+5 → brightness multiplier using exponential curve (photographic stops)
+    const exposureBrightness = Math.pow(2, p.exposure * 0.5);
+    
+    // brightness: -1..+1 → additional linear brightness adjustment
+    const brightnessMult = 1 + p.brightness * 0.5;
+    
+    // highlights: -1..+1 → boost bright areas (approximated)
+    const highlightBoost = 1 + Math.max(0, p.highlights) * 0.2;
+    
+    // shadows: -1..+1 → lift dark areas (approximated)
+    const shadowBoost = 1 + Math.max(0, p.shadows) * 0.15;
+    
+    // whites: -1..+1 → extreme highlights (approximated)
+    const whitesBoost = 1 + Math.max(0, p.whites) * 0.15;
+    
+    // blacks: -1..+1 → extreme shadows (approximated)
+    const blacksBoost = 1 + Math.max(0, p.blacks) * 0.1;
+    
+    // Combine all brightness adjustments
+    const totalBrightness = exposureBrightness * brightnessMult * highlightBoost * shadowBoost * whitesBoost * blacksBoost;
+    
+    // contrast: -1..+1 → contrast 0.0..2.0 (0 = 1.0)
     const contrast = 1 + p.contrast;
-    // highlights/shadows/whites/blacks affect brightness subtly
-    const highlightBoost = 1 + (p.highlights * 0.15) + (p.whites * 0.1);
-    const shadowBoost = 1 + (p.shadows * 0.1) + (p.blacks * 0.05);
-    const totalBrightness = brightness * highlightBoost * shadowBoost;
-    return `filter: brightness(${totalBrightness.toFixed(3)}) contrast(${contrast.toFixed(3)});`;
+    
+    // saturation: -1..+1 → saturate() 0.0..2.0 (0 = 1.0)
+    const saturation = 1 + p.saturation;
+    
+    // temperature: -1..+1 → sepia for warm, hue-rotate for cool
+    // Warm (positive): use sepia filter
+    // Cool (negative): use hue-rotate towards blue
+    const tempFilters = [];
+    if (p.temperature > 0) {
+      // Warm: add sepia effect (0-40% sepia)
+      tempFilters.push(`sepia(${(p.temperature * 0.4).toFixed(3)})`);
+      // Slightly increase saturation for warmth
+      tempFilters.push(`saturate(${(1 + p.temperature * 0.2).toFixed(3)})`);
+    } else if (p.temperature < 0) {
+      // Cool: rotate hue towards blue (-180deg = cooler)
+      const hueShift = p.temperature * 20; // -1 = -20deg towards blue
+      tempFilters.push(`hue-rotate(${hueShift.toFixed(0)}deg)`);
+    }
+    
+    // Build the complete filter string
+    const filters = [
+      `brightness(${totalBrightness.toFixed(3)})`,
+      `contrast(${contrast.toFixed(3)})`,
+      `saturate(${saturation.toFixed(3)})`,
+      ...tempFilters
+    ];
+    
+    return `filter: ${filters.join(' ')};`;
   });
 
   const blurredSlideshow = $derived(

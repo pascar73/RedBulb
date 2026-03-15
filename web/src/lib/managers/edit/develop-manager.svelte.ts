@@ -11,6 +11,10 @@ class DevelopManager implements EditToolManager {
   blacks = $state(0);
   brightness = $state(0);
 
+  // Color adjustment parameters
+  saturation = $state(0);
+  temperature = $state(0);
+
   hasChanges = $derived.by(() => {
     return (
       this.exposure !== 0 ||
@@ -19,7 +23,9 @@ class DevelopManager implements EditToolManager {
       this.shadows !== 0 ||
       this.whites !== 0 ||
       this.blacks !== 0 ||
-      this.brightness !== 0
+      this.brightness !== 0 ||
+      this.saturation !== 0 ||
+      this.temperature !== 0
     );
   });
 
@@ -35,7 +41,9 @@ class DevelopManager implements EditToolManager {
     shadows: this.shadows,
     whites: this.whites,
     blacks: this.blacks,
-    brightness: this.brightness
+    brightness: this.brightness,
+    saturation: this.saturation,
+    temperature: this.temperature
   }));
 
   async onActivate(asset: AssetResponseDto, edits: EditActions): Promise<void> {
@@ -55,6 +63,8 @@ class DevelopManager implements EditToolManager {
     this.whites = 0;
     this.blacks = 0;
     this.brightness = 0;
+    this.saturation = 0;
+    this.temperature = 0;
   }
 
   getEdits(): EditActions {

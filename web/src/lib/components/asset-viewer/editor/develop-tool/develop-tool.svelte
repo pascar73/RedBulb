@@ -9,7 +9,7 @@
     step: number;
   }
 
-  const sliders: SliderConfig[] = [
+  const basicSliders: SliderConfig[] = [
     { label: 'Exposure', key: 'exposure', min: -5, max: 5, step: 0.1 },
     { label: 'Contrast', key: 'contrast', min: -1, max: 1, step: 0.01 },
     { label: 'Highlights', key: 'highlights', min: -1, max: 1, step: 0.01 },
@@ -17,6 +17,11 @@
     { label: 'Whites', key: 'whites', min: -1, max: 1, step: 0.01 },
     { label: 'Blacks', key: 'blacks', min: -1, max: 1, step: 0.01 },
     { label: 'Brightness', key: 'brightness', min: -1, max: 1, step: 0.01 },
+  ];
+
+  const colorSliders: SliderConfig[] = [
+    { label: 'Temperature', key: 'temperature', min: -1, max: 1, step: 0.01 },
+    { label: 'Saturation', key: 'saturation', min: -1, max: 1, step: 0.01 },
   ];
 
   function resetSlider(key: string) {
@@ -34,7 +39,37 @@
   </div>
 
   <div class="space-y-4 mt-4">
-    {#each sliders as slider}
+    {#each basicSliders as slider}
+      <div class="flex flex-col gap-1">
+        <div class="flex justify-between items-center">
+          <label
+            class="text-sm text-white cursor-pointer select-none"
+            ondblclick={() => resetSlider(slider.key)}
+          >
+            {slider.label}
+          </label>
+          <span class="text-sm text-gray-400 font-mono w-16 text-right">
+            {formatValue(developManager[slider.key] as number)}
+          </span>
+        </div>
+        <input
+          type="range"
+          min={slider.min}
+          max={slider.max}
+          step={slider.step}
+          bind:value={developManager[slider.key]}
+          class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+        />
+      </div>
+    {/each}
+  </div>
+
+  <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
+    <h2>Color</h2>
+  </div>
+
+  <div class="space-y-4 mt-4">
+    {#each colorSliders as slider}
       <div class="flex flex-col gap-1">
         <div class="flex justify-between items-center">
           <label
