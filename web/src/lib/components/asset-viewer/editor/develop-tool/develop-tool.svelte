@@ -50,6 +50,16 @@
     (developManager as any)[key] = 0;
   }
 
+  function resetSection(sliders: SliderConfig[]) {
+    for (const s of sliders) {
+      (developManager as any)[s.key] = 0;
+    }
+  }
+
+  function sectionHasChanges(sliders: SliderConfig[]): boolean {
+    return sliders.some(s => (developManager as any)[s.key] !== 0);
+  }
+
   function formatValue(value: number): string {
     return value.toFixed(2);
   }
@@ -58,6 +68,9 @@
 <div class="mt-3 px-4">
   <div class="flex h-10 w-full items-center justify-between text-sm mt-2">
     <h2>Basic</h2>
+    {#if sectionHasChanges(basicSliders)}
+      <button class="section-reset" title="Reset Basic" onclick={() => resetSection(basicSliders)}>↺</button>
+    {/if}
   </div>
 
   <div class="space-y-4 mt-4">
@@ -88,6 +101,9 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>Color</h2>
+    {#if sectionHasChanges(colorSliders)}
+      <button class="section-reset" title="Reset Color" onclick={() => resetSection(colorSliders)}>↺</button>
+    {/if}
   </div>
 
   <div class="space-y-4 mt-4">
@@ -118,6 +134,9 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>Details</h2>
+    {#if sectionHasChanges(detailsSliders)}
+      <button class="section-reset" title="Reset Details" onclick={() => resetSection(detailsSliders)}>↺</button>
+    {/if}
   </div>
 
   <div class="space-y-4 mt-4">
@@ -150,6 +169,9 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>Tone</h2>
+    {#if sectionHasChanges(toneSliders)}
+      <button class="section-reset" title="Reset Tone" onclick={() => resetSection(toneSliders)}>↺</button>
+    {/if}
   </div>
 
   <div class="space-y-4 mt-4">
@@ -180,6 +202,9 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>Effects</h2>
+    {#if sectionHasChanges(effectsSliders)}
+      <button class="section-reset" title="Reset Effects" onclick={() => resetSection(effectsSliders)}>↺</button>
+    {/if}
   </div>
 
   <div class="space-y-4 mt-4">
@@ -212,6 +237,9 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>Curves</h2>
+    {#if Object.values(developManager.curves).some(ch => ch.length > 0)}
+      <button class="section-reset" title="Reset Curves" onclick={() => { developManager.curves = { master: [], red: [], green: [], blue: [] }; }}>↺</button>
+    {/if}
   </div>
 
   <div class="mt-4">
@@ -220,6 +248,9 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>HSL</h2>
+    {#if Object.values(developManager.hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0)}
+      <button class="section-reset" title="Reset HSL" onclick={() => { for (const ch of Object.keys(developManager.hsl)) { (developManager.hsl as any)[ch] = { h: 0, s: 0, l: 0 }; } }}>↺</button>
+    {/if}
   </div>
 
   <div class="mt-4">
@@ -230,6 +261,26 @@
 </div>
 
 <style>
+  /* Per-section reset button */
+  .section-reset {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #9ca3af;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+  }
+  .section-reset:hover {
+    color: #ffffff;
+    background: #374151;
+  }
+
   /* Custom slider styling to match Immich dark theme */
   .slider {
     -webkit-appearance: none;
