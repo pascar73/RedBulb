@@ -82,11 +82,6 @@
       </div>
     {/each}
   </div>
-
-  <!-- WebGPU notice -->
-  <div class="text-xs text-amber-400">
-    ⚠ WebGPU required for live preview
-  </div>
 </div>
 
 <style>

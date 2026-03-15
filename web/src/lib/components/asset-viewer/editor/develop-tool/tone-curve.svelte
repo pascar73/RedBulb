@@ -214,8 +214,7 @@
   </div>
 
   <!-- Instructions -->
-  <div class="text-xs text-gray-400 space-y-1">
-    <div>Click to add control points • Drag to adjust • Double-click to remove</div>
-    <div class="text-amber-400">⚠ WebGPU required for live preview</div>
+  <div class="text-xs text-gray-400">
+    Click to add control points • Drag to adjust • Double-click to remove
   </div>
 </div>

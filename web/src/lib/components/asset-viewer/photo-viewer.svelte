@@ -235,6 +235,24 @@
     $slideshowState !== SlideshowState.None && $slideshowLook === SlideshowLook.BlurredBackground && !!asset.thumbhash,
   );
 
+  // Dynamic canvas preview for develop mode (curves/HSL support)
+  let PreviewCanvas: any = $state(undefined);
+  let canvasLoaded = $state(false);
+
+  $effect(() => {
+    if (isInDevelopMode && developManager.hasChanges && !canvasLoaded) {
+      // Dynamically import canvas preview component
+      import('./editor/preview-canvas.svelte')
+        .then(module => {
+          PreviewCanvas = module.default;
+          canvasLoaded = true;
+        })
+        .catch(err => {
+          console.error('Failed to load preview canvas:', err);
+        });
+    }
+  });
+
   const faceToNameMap = $derived.by(() => {
     // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const map = new Map<Faces, string>();
@@ -352,5 +370,14 @@
 
   {#if isFaceEditMode.value && assetViewerManager.imgRef}
     <FaceEditor htmlElement={assetViewerManager.imgRef} {containerWidth} {containerHeight} assetId={asset.id} />
+  {/if}
+
+  {#if canvasLoaded && PreviewCanvas && currentPreviewUrl}
+    <svelte:component
+      this={PreviewCanvas}
+      imageUrl={currentPreviewUrl}
+      width={containerWidth}
+      height={containerHeight}
+    />
   {/if}
 </div>
