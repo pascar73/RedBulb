@@ -196,13 +196,12 @@
     setPoints(newPoints);
   }
 
+  let svgElement = $state<SVGSVGElement | undefined>(undefined);
+
   function handleMouseMove(event: MouseEvent) {
-    if (draggingIndex === null) return;
+    if (draggingIndex === null || !svgElement) return;
 
-    const svg = (event.currentTarget as HTMLElement).querySelector('svg');
-    if (!svg) return;
-
-    const rect = svg.getBoundingClientRect();
+    const rect = svgElement.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
     const y = Math.max(0, Math.min(1, 1 - (event.clientY - rect.top) / rect.height));
 
@@ -211,11 +210,16 @@
     newPoints[draggingIndex] = { x, y };
     // Re-sort after moving
     newPoints.sort((a, b) => a.x - b.x);
+    // Update dragging index after sort
+    const movedPoint = { x, y };
+    const newIndex = newPoints.findIndex(p => p.x === movedPoint.x && p.y === movedPoint.y);
+    if (newIndex !== -1) draggingIndex = newIndex;
     setPoints(newPoints);
   }
 
   function handleMouseUp() {
     draggingIndex = null;
+    pointClicked = false;
   }
 
   // Monotone cubic spline interpolation (Fritsch-Carlson)
@@ -297,6 +301,7 @@
   <!-- Curve editor -->
   <div class="relative">
     <svg
+      bind:this={svgElement}
       viewBox="0 0 {SVG_SIZE} {SVG_SIZE}"
       class="w-full aspect-square bg-neutral-900 rounded cursor-crosshair select-none"
       onclick={handleSvgClick}
