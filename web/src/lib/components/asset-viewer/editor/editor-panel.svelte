@@ -1,9 +1,10 @@
 <script lang="ts">
   import { shortcut } from '$lib/actions/shortcut';
   import { editManager, EditToolType } from '$lib/managers/edit/edit-manager.svelte';
+  import { developManager } from '$lib/managers/edit/develop-manager.svelte';
   import { websocketEvents } from '$lib/stores/websocket';
   import { getAssetEdits, type AssetResponseDto } from '@immich/sdk';
-  import { Button, HStack, IconButton } from '@immich/ui';
+  import { Button, HStack, IconButton, toastManager } from '@immich/ui';
   import { mdiClose } from '@mdi/js';
   import { onDestroy, onMount } from 'svelte';
   import { t } from 'svelte-i18n';
@@ -31,6 +32,12 @@
   });
 
   async function applyEdits() {
+    // Prevent server save when only Develop changes exist (no server-side support yet)
+    if (developManager.hasChanges) {
+      toastManager.info('Develop adjustments are preview-only. Client-side export coming in Sprint 5.');
+      return;
+    }
+
     const success = await editManager.applyEdits();
 
     if (success) {
