@@ -226,15 +226,7 @@
     <HslPanel />
   </div>
 
-  <div class="mt-8 mb-4">
-    <button
-      class="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      disabled={!developManager.hasChanges}
-      onclick={() => developManager.resetAllChanges()}
-    >
-      Reset All
-    </button>
-  </div>
+  <!-- Reset handled by Immich's built-in "Reset changes" button in editor-panel -->
 </div>
 
 <style>
