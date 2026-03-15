@@ -16,15 +16,29 @@
   const SVG_SIZE = 256;
   const HISTOGRAM_BINS = 256;
 
-  // Compute histogram from the current asset
+  // Cached raw pixel data from the original image
+  let rawPixelData: Uint8ClampedArray | null = null;
+  let histTimeout: ReturnType<typeof setTimeout> | undefined;
+
+  // Load image data once when asset changes
   $effect(() => {
     const asset = editManager.currentAsset;
     if (asset) {
-      computeHistogram(asset.id);
+      loadImageData(asset.id);
     }
   });
 
-  async function computeHistogram(assetId: string) {
+  // Recompute histogram when curves change
+  $effect(() => {
+    // Track curves to trigger recompute
+    const _curves = developManager.curves;
+    if (rawPixelData) {
+      if (histTimeout) clearTimeout(histTimeout);
+      histTimeout = setTimeout(() => updateHistogram(), 80);
+    }
+  });
+
+  async function loadImageData(assetId: string) {
     try {
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -34,7 +48,6 @@
         img.src = `/api/assets/${assetId}/thumbnail?size=preview`;
       });
 
-      // Draw to offscreen canvas at small size for speed
       const canvas = document.createElement('canvas');
       const scale = Math.min(1, 512 / Math.max(img.naturalWidth, img.naturalHeight));
       canvas.width = Math.round(img.naturalWidth * scale);
@@ -42,33 +55,73 @@
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-
-      // Count per channel
-      const rHist = new Uint32Array(HISTOGRAM_BINS);
-      const gHist = new Uint32Array(HISTOGRAM_BINS);
-      const bHist = new Uint32Array(HISTOGRAM_BINS);
-      const lHist = new Uint32Array(HISTOGRAM_BINS);
-
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i + 1], b = data[i + 2];
-        rHist[r]++;
-        gHist[g]++;
-        bHist[b]++;
-        // Luminance approximation
-        lHist[Math.round(0.299 * r + 0.587 * g + 0.114 * b)]++;
-      }
-
-      histogramPaths = {
-        master: buildHistogramPath(lHist),
-        red: buildHistogramPath(rHist),
-        green: buildHistogramPath(gHist),
-        blue: buildHistogramPath(bHist),
-      };
+      rawPixelData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      updateHistogram();
     } catch {
       // Silently fail — histogram is optional
     }
+  }
+
+  function buildCurveLUT(points: Array<{ x: number; y: number }>): Uint8Array {
+    const lut = new Uint8Array(256);
+    if (points.length === 0) {
+      // Identity — no curve adjustment
+      for (let i = 0; i < 256; i++) lut[i] = i;
+      return lut;
+    }
+
+    // Full control points including endpoints
+    const allPoints = [{ x: 0, y: 0 }, ...points, { x: 1, y: 1 }];
+
+    for (let i = 0; i < 256; i++) {
+      const t = i / 255;
+      // Find segment
+      let seg = 0;
+      for (let s = 0; s < allPoints.length - 1; s++) {
+        if (t >= allPoints[s].x && t <= allPoints[s + 1].x) { seg = s; break; }
+      }
+      const p0 = allPoints[seg];
+      const p1 = allPoints[seg + 1];
+      const frac = p1.x === p0.x ? 0 : (t - p0.x) / (p1.x - p0.x);
+      const val = p0.y + frac * (p1.y - p0.y);
+      lut[i] = Math.max(0, Math.min(255, Math.round(val * 255)));
+    }
+    return lut;
+  }
+
+  function updateHistogram() {
+    if (!rawPixelData) return;
+    const data = rawPixelData;
+    const curves = developManager.curves;
+
+    // Build LUTs for each channel
+    const masterLUT = buildCurveLUT(curves.master);
+    const redLUT = buildCurveLUT(curves.red);
+    const greenLUT = buildCurveLUT(curves.green);
+    const blueLUT = buildCurveLUT(curves.blue);
+
+    const rHist = new Uint32Array(HISTOGRAM_BINS);
+    const gHist = new Uint32Array(HISTOGRAM_BINS);
+    const bHist = new Uint32Array(HISTOGRAM_BINS);
+    const lHist = new Uint32Array(HISTOGRAM_BINS);
+
+    for (let i = 0; i < data.length; i += 4) {
+      // Apply curves: channel-specific then master
+      const r = masterLUT[redLUT[data[i]]];
+      const g = masterLUT[greenLUT[data[i + 1]]];
+      const b = masterLUT[blueLUT[data[i + 2]]];
+      rHist[r]++;
+      gHist[g]++;
+      bHist[b]++;
+      lHist[Math.round(0.299 * r + 0.587 * g + 0.114 * b)]++;
+    }
+
+    histogramPaths = {
+      master: buildHistogramPath(lHist),
+      red: buildHistogramPath(rHist),
+      green: buildHistogramPath(gHist),
+      blue: buildHistogramPath(bHist),
+    };
   }
 
   function buildHistogramPath(hist: Uint32Array): string {
