@@ -10,6 +10,7 @@
   let histogramPaths = $state<{ master: string; red: string; green: string; blue: string }>({
     master: '', red: '', green: '', blue: ''
   });
+  let paradeCanvas = $state<HTMLCanvasElement | undefined>(undefined);
 
   const MAX_POINTS = 16;
   const POINT_RADIUS = 8; // larger hit target for easier clicking
@@ -18,6 +19,8 @@
 
   // Cached raw pixel data from the original image
   let rawPixelData: Uint8ClampedArray | null = null;
+  let imgWidth = 0;
+  let imgHeight = 0;
   let histTimeout: ReturnType<typeof setTimeout> | undefined;
 
   // Load image data once when asset changes
@@ -40,7 +43,7 @@
     ];
     if (rawPixelData) {
       if (histTimeout) clearTimeout(histTimeout);
-      histTimeout = setTimeout(() => updateHistogram(), 80);
+      histTimeout = setTimeout(() => { updateHistogram(); renderParade(); }, 80);
     }
   });
 
@@ -62,7 +65,10 @@
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
       rawPixelData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      imgWidth = canvas.width;
+      imgHeight = canvas.height;
       updateHistogram();
+      renderParade();
     } catch {
       // Silently fail — histogram is optional
     }
@@ -93,6 +99,105 @@
       lut[i] = Math.max(0, Math.min(255, Math.round(val * 255)));
     }
     return lut;
+  }
+
+  function renderParade() {
+    if (!rawPixelData || !paradeCanvas) return;
+    const data = rawPixelData;
+    const curves = developManager.curves;
+    const masterLUT = buildCurveLUT(curves.master);
+    const redLUT = buildCurveLUT(curves.red);
+    const greenLUT = buildCurveLUT(curves.green);
+    const blueLUT = buildCurveLUT(curves.blue);
+
+    const canvasW = paradeCanvas.width;
+    const canvasH = paradeCanvas.height;
+    const ctx = paradeCanvas.getContext('2d')!;
+
+    // Clear
+    ctx.fillStyle = '#171717';
+    ctx.fillRect(0, 0, canvasW, canvasH);
+
+    // Draw 10%/90% reference lines
+    ctx.strokeStyle = 'rgba(75,85,99,0.4)';
+    ctx.lineWidth = 0.5;
+    for (const frac of [0.25, 0.5, 0.75]) {
+      const lineY = canvasH * (1 - frac);
+      ctx.beginPath();
+      ctx.moveTo(0, lineY);
+      ctx.lineTo(canvasW, lineY);
+      ctx.stroke();
+    }
+
+    const imgW = imgWidth;
+    const imgH = imgHeight;
+    if (imgW === 0 || imgH === 0) return;
+
+    const sectionW = Math.floor(canvasW / 3);
+    const gap = 2;
+
+    // For each column of image, count intensity distribution per channel
+    // Use accumulation buffers for density
+    const rBuf = new Uint16Array(sectionW * canvasH);
+    const gBuf = new Uint16Array(sectionW * canvasH);
+    const bBuf = new Uint16Array(sectionW * canvasH);
+
+    for (let row = 0; row < imgH; row++) {
+      for (let col = 0; col < imgW; col++) {
+        const i = (row * imgW + col) * 4;
+        const r = masterLUT[redLUT[data[i]]];
+        const g = masterLUT[greenLUT[data[i + 1]]];
+        const b = masterLUT[blueLUT[data[i + 2]]];
+
+        const xBin = Math.floor(col / imgW * sectionW);
+        const rY = Math.floor((1 - r / 255) * (canvasH - 1));
+        const gY = Math.floor((1 - g / 255) * (canvasH - 1));
+        const bY = Math.floor((1 - b / 255) * (canvasH - 1));
+
+        rBuf[rY * sectionW + xBin]++;
+        gBuf[gY * sectionW + xBin]++;
+        bBuf[bY * sectionW + xBin]++;
+      }
+    }
+
+    // Find max for normalization
+    let maxVal = 1;
+    for (let i = 0; i < rBuf.length; i++) {
+      maxVal = Math.max(maxVal, rBuf[i], gBuf[i], bBuf[i]);
+    }
+
+    // Render each channel section
+    const sections: Array<{ buf: Uint16Array; color: [number, number, number]; offsetX: number }> = [
+      { buf: rBuf, color: [239, 68, 68], offsetX: 0 },
+      { buf: gBuf, color: [34, 197, 94], offsetX: sectionW + gap },
+      { buf: bBuf, color: [59, 130, 246], offsetX: 2 * (sectionW + gap) },
+    ];
+
+    for (const { buf, color, offsetX } of sections) {
+      const imgData = ctx.createImageData(sectionW, canvasH);
+      const pixels = imgData.data;
+      for (let y = 0; y < canvasH; y++) {
+        for (let x = 0; x < sectionW; x++) {
+          const density = buf[y * sectionW + x] / maxVal;
+          if (density > 0) {
+            const idx = (y * sectionW + x) * 4;
+            const alpha = Math.min(255, Math.round(density * 600));
+            pixels[idx] = color[0];
+            pixels[idx + 1] = color[1];
+            pixels[idx + 2] = color[2];
+            pixels[idx + 3] = alpha;
+          }
+        }
+      }
+      ctx.putImageData(imgData, offsetX, 0);
+    }
+
+    // Section labels
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('R', 4, 12);
+    ctx.fillText('G', sectionW + gap + 4, 12);
+    ctx.fillText('B', 2 * (sectionW + gap) + 4, 12);
   }
 
   function updateHistogram() {
@@ -386,5 +491,16 @@
   <!-- Instructions -->
   <div class="text-xs text-gray-400">
     Click to add control points • Drag to adjust • Double-click to remove
+  </div>
+
+  <!-- Parade Waveform (RGB) -->
+  <div class="mt-2">
+    <div class="text-xs text-gray-400 mb-1">Parade</div>
+    <canvas
+      bind:this={paradeCanvas}
+      width={256}
+      height={256}
+      class="w-full aspect-square rounded bg-neutral-900"
+    ></canvas>
   </div>
 </div>
