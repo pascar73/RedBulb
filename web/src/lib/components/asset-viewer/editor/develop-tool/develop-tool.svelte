@@ -68,9 +68,7 @@
 <div class="mt-3 px-4">
   <div class="flex h-10 w-full items-center justify-between text-sm mt-2">
     <h2>Basic</h2>
-    {#if sectionHasChanges(basicSliders)}
-      <button class="section-reset" title="Reset Basic" onclick={() => resetSection(basicSliders)}>↺</button>
-    {/if}
+    <button class="section-reset" class:has-changes={sectionHasChanges(basicSliders)} title="Reset Basic" onclick={() => resetSection(basicSliders)}>↺</button>
   </div>
 
   <div class="space-y-4 mt-4">
@@ -101,9 +99,7 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>Color</h2>
-    {#if sectionHasChanges(colorSliders)}
-      <button class="section-reset" title="Reset Color" onclick={() => resetSection(colorSliders)}>↺</button>
-    {/if}
+    <button class="section-reset" class:has-changes={sectionHasChanges(colorSliders)} title="Reset Color" onclick={() => resetSection(colorSliders)}>↺</button>
   </div>
 
   <div class="space-y-4 mt-4">
@@ -134,9 +130,7 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>Details</h2>
-    {#if sectionHasChanges(detailsSliders)}
-      <button class="section-reset" title="Reset Details" onclick={() => resetSection(detailsSliders)}>↺</button>
-    {/if}
+    <button class="section-reset" class:has-changes={sectionHasChanges(detailsSliders)} title="Reset Details" onclick={() => resetSection(detailsSliders)}>↺</button>
   </div>
 
   <div class="space-y-4 mt-4">
@@ -169,9 +163,7 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>Tone</h2>
-    {#if sectionHasChanges(toneSliders)}
-      <button class="section-reset" title="Reset Tone" onclick={() => resetSection(toneSliders)}>↺</button>
-    {/if}
+    <button class="section-reset" class:has-changes={sectionHasChanges(toneSliders)} title="Reset Tone" onclick={() => resetSection(toneSliders)}>↺</button>
   </div>
 
   <div class="space-y-4 mt-4">
@@ -202,9 +194,7 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>Effects</h2>
-    {#if sectionHasChanges(effectsSliders)}
-      <button class="section-reset" title="Reset Effects" onclick={() => resetSection(effectsSliders)}>↺</button>
-    {/if}
+    <button class="section-reset" class:has-changes={sectionHasChanges(effectsSliders)} title="Reset Effects" onclick={() => resetSection(effectsSliders)}>↺</button>
   </div>
 
   <div class="space-y-4 mt-4">
@@ -237,9 +227,7 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>Curves</h2>
-    {#if Object.values(developManager.curves).some(ch => ch.length > 0)}
-      <button class="section-reset" title="Reset Curves" onclick={() => { developManager.curves = { master: [], red: [], green: [], blue: [] }; }}>↺</button>
-    {/if}
+    <button class="section-reset" class:has-changes={Object.values(developManager.curves).some(ch => ch.length > 0)} title="Reset Curves" onclick={() => { developManager.curves = { master: [], red: [], green: [], blue: [] }; }}>↺</button>
   </div>
 
   <div class="mt-4">
@@ -248,9 +236,7 @@
 
   <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
     <h2>HSL</h2>
-    {#if Object.values(developManager.hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0)}
-      <button class="section-reset" title="Reset HSL" onclick={() => { for (const ch of Object.keys(developManager.hsl)) { (developManager.hsl as any)[ch] = { h: 0, s: 0, l: 0 }; } }}>↺</button>
-    {/if}
+    <button class="section-reset" class:has-changes={Object.values(developManager.hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0)} title="Reset HSL" onclick={() => { for (const ch of Object.keys(developManager.hsl)) { (developManager.hsl as any)[ch] = { h: 0, s: 0, l: 0 }; } }}>↺</button>
   </div>
 
   <div class="mt-4">
@@ -261,7 +247,7 @@
 </div>
 
 <style>
-  /* Per-section reset button */
+  /* Per-section reset button — always visible, dim when no changes */
   .section-reset {
     width: 24px;
     height: 24px;
@@ -269,14 +255,20 @@
     align-items: center;
     justify-content: center;
     font-size: 14px;
-    color: #9ca3af;
+    color: #4b5563;
     background: transparent;
     border: none;
     border-radius: 4px;
-    cursor: pointer;
+    cursor: default;
+    pointer-events: none;
     transition: color 0.15s, background 0.15s;
   }
-  .section-reset:hover {
+  .section-reset.has-changes {
+    color: #9ca3af;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  .section-reset.has-changes:hover {
     color: #ffffff;
     background: #374151;
   }
