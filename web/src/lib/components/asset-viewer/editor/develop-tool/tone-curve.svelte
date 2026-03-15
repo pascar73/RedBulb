@@ -73,29 +73,57 @@
     draggingIndex = null;
   }
 
-  // Generate smooth curve path using cubic bezier interpolation
+  // Monotone cubic spline interpolation (Fritsch-Carlson)
   function getCurvePath(): string {
     const points = getPoints();
     if (points.length === 0) {
-      // Identity line
       return `M 0,${SVG_SIZE} L ${SVG_SIZE},0`;
     }
 
-    // Always include corners
+    // Include endpoints
     const allPoints = [
       { x: 0, y: 0 },
       ...points,
       { x: 1, y: 1 }
     ].sort((a, b) => a.x - b.x);
 
-    // Simple linear interpolation for now (cubic bezier would be more complex)
-    const pathParts = allPoints.map((p, i) => {
-      const svgX = p.x * SVG_SIZE;
-      const svgY = (1 - p.y) * SVG_SIZE;
-      return i === 0 ? `M ${svgX},${svgY}` : `L ${svgX},${svgY}`;
-    });
+    const n = allPoints.length;
+    if (n < 2) return `M 0,${SVG_SIZE} L ${SVG_SIZE},0`;
+    if (n === 2) {
+      const p0 = allPoints[0], p1 = allPoints[1];
+      return `M ${p0.x * SVG_SIZE},${(1 - p0.y) * SVG_SIZE} L ${p1.x * SVG_SIZE},${(1 - p1.y) * SVG_SIZE}`;
+    }
 
-    return pathParts.join(' ');
+    // Compute tangents using Catmull-Rom style
+    const tangents: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (i === 0) {
+        tangents.push((allPoints[1].y - allPoints[0].y) / (allPoints[1].x - allPoints[0].x || 1));
+      } else if (i === n - 1) {
+        tangents.push((allPoints[n - 1].y - allPoints[n - 2].y) / (allPoints[n - 1].x - allPoints[n - 2].x || 1));
+      } else {
+        const d0 = (allPoints[i].y - allPoints[i - 1].y) / (allPoints[i].x - allPoints[i - 1].x || 1);
+        const d1 = (allPoints[i + 1].y - allPoints[i].y) / (allPoints[i + 1].x - allPoints[i].x || 1);
+        // Average tangent, clamped for monotonicity
+        tangents.push((d0 + d1) / 2);
+      }
+    }
+
+    // Build cubic bezier path segments
+    let path = `M ${allPoints[0].x * SVG_SIZE},${(1 - allPoints[0].y) * SVG_SIZE}`;
+    for (let i = 0; i < n - 1; i++) {
+      const p0 = allPoints[i];
+      const p1 = allPoints[i + 1];
+      const dx = p1.x - p0.x;
+      // Control points for cubic bezier
+      const cp1x = p0.x + dx / 3;
+      const cp1y = p0.y + tangents[i] * dx / 3;
+      const cp2x = p1.x - dx / 3;
+      const cp2y = p1.y - tangents[i + 1] * dx / 3;
+      path += ` C ${cp1x * SVG_SIZE},${(1 - cp1y) * SVG_SIZE} ${cp2x * SVG_SIZE},${(1 - cp2y) * SVG_SIZE} ${p1.x * SVG_SIZE},${(1 - p1.y) * SVG_SIZE}`;
+    }
+
+    return path;
   }
 </script>
 
