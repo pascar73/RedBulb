@@ -1,5 +1,7 @@
 <script lang="ts">
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
+  import ToneCurve from './tone-curve.svelte';
+  import HslPanel from './hsl-panel.svelte';
 
   interface SliderConfig {
     label: string;
@@ -206,6 +208,22 @@
         />
       </div>
     {/each}
+  </div>
+
+  <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
+    <h2>Curves</h2>
+  </div>
+
+  <div class="mt-4">
+    <ToneCurve />
+  </div>
+
+  <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
+    <h2>HSL</h2>
+  </div>
+
+  <div class="mt-4">
+    <HslPanel />
   </div>
 
   <div class="mt-8 mb-4">
