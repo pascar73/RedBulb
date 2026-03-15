@@ -173,14 +173,25 @@
     // blacks: -1..+1 → extreme shadows (approximated)
     const blacksBoost = 1 + Math.max(0, p.blacks) * 0.1;
     
+    // fade: 0..1 → reduce contrast and increase brightness (faded film look)
+    const fadeBrightness = 1 + p.fade * 0.15;
+    const fadeContrast = 1 - p.fade * 0.3;
+    
     // Combine all brightness adjustments
-    const totalBrightness = exposureBrightness * brightnessMult * highlightBoost * shadowBoost * whitesBoost * blacksBoost;
+    const totalBrightness = exposureBrightness * brightnessMult * highlightBoost * shadowBoost * whitesBoost * blacksBoost * fadeBrightness;
     
     // contrast: -1..+1 → contrast 0.0..2.0 (0 = 1.0)
-    const contrast = 1 + p.contrast;
+    // clarity: -1..+1 → additional contrast boost (approximated micro-contrast)
+    // dehaze: -1..+1 → boost contrast for clarity
+    const contrast = (1 + p.contrast) * (1 + p.clarity * 0.3) * (1 + p.dehaze * 0.4) * fadeContrast;
     
     // saturation: -1..+1 → saturate() 0.0..2.0 (0 = 1.0)
-    const saturation = 1 + p.saturation;
+    // vibrance: -1..+1 → like saturation but less aggressive (smart saturation)
+    // dehaze: adds saturation boost
+    const saturation = (1 + p.saturation) * (1 + p.vibrance * 0.5) * (1 + Math.max(0, p.dehaze) * 0.2);
+    
+    // noiseReduction: 0..1 → subtle blur (0 = no blur, 1 = 0.5px max)
+    const blurAmount = p.noiseReduction * 0.5;
     
     // temperature: -1..+1 → sepia for warm, hue-rotate for cool
     // Warm (positive): use sepia filter
@@ -197,6 +208,13 @@
       tempFilters.push(`hue-rotate(${hueShift.toFixed(0)}deg)`);
     }
     
+    // tint: -1..+1 → hue-rotate on green↔magenta axis
+    // Map to -30deg (green) to +30deg (magenta)
+    if (p.tint !== 0) {
+      const tintHueShift = p.tint * 30;
+      tempFilters.push(`hue-rotate(${tintHueShift.toFixed(0)}deg)`);
+    }
+    
     // Build the complete filter string
     const filters = [
       `brightness(${totalBrightness.toFixed(3)})`,
@@ -204,6 +222,11 @@
       `saturate(${saturation.toFixed(3)})`,
       ...tempFilters
     ];
+    
+    // Add blur for noise reduction if > 0
+    if (blurAmount > 0) {
+      filters.push(`blur(${blurAmount.toFixed(2)}px)`);
+    }
     
     return `filter: ${filters.join(' ')};`;
   });
