@@ -6,17 +6,14 @@
   
   let activeChannel = $state<Channel>('master');
   let draggingIndex = $state<number | null>(null);
-  let clickTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingDragIndex: number | null = null;
-  let hasDragged = $state(false);
+  let pointClicked = false; // prevents SVG background click when clicking a point
   let histogramPaths = $state<{ master: string; red: string; green: string; blue: string }>({
     master: '', red: '', green: '', blue: ''
   });
 
   const MAX_POINTS = 16;
-  const POINT_RADIUS = 6;
+  const POINT_RADIUS = 8; // larger hit target for easier clicking
   const SVG_SIZE = 256;
-  const DOUBLE_CLICK_MS = 300;
   const HISTOGRAM_BINS = 256;
 
   // Compute histogram from the current asset
@@ -102,6 +99,12 @@
   }
 
   function handleSvgClick(event: MouseEvent) {
+    // Don't add a point if we just clicked on an existing point
+    if (pointClicked) {
+      pointClicked = false;
+      return;
+    }
+
     const svg = event.currentTarget as SVGSVGElement;
     const rect = svg.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width;
@@ -110,6 +113,14 @@
     const points = getPoints();
     if (points.length >= MAX_POINTS) return;
 
+    // Check if click is near an existing point (within POINT_RADIUS)
+    const clickNearPoint = points.some(p => {
+      const dx = (p.x - x) * SVG_SIZE;
+      const dy = (p.y - y) * SVG_SIZE;
+      return Math.sqrt(dx * dx + dy * dy) < POINT_RADIUS * 2;
+    });
+    if (clickNearPoint) return;
+
     // Add new point and sort by x
     const newPoints = [...points, { x, y }].sort((a, b) => a.x - b.x);
     setPoints(newPoints);
@@ -117,29 +128,19 @@
 
   function handlePointMouseDown(index: number, event: MouseEvent) {
     event.stopPropagation();
-    hasDragged = false;
+    event.preventDefault();
+    pointClicked = true;
+    draggingIndex = index;
+  }
 
-    if (clickTimer !== null) {
-      // Second click within timeout = double-click → delete point
-      clearTimeout(clickTimer);
-      clickTimer = null;
-      pendingDragIndex = null;
-      const points = getPoints();
-      const newPoints = points.filter((_, i) => i !== index);
-      setPoints(newPoints);
-      return;
-    }
-
-    // First click — wait to see if it's a double-click
-    pendingDragIndex = index;
-    clickTimer = setTimeout(() => {
-      // Single click confirmed — start drag
-      clickTimer = null;
-      if (pendingDragIndex !== null) {
-        draggingIndex = pendingDragIndex;
-        pendingDragIndex = null;
-      }
-    }, DOUBLE_CLICK_MS);
+  function handlePointDblClick(index: number, event: MouseEvent) {
+    event.stopPropagation();
+    event.preventDefault();
+    pointClicked = true;
+    draggingIndex = null;
+    const points = getPoints();
+    const newPoints = points.filter((_, i) => i !== index);
+    setPoints(newPoints);
   }
 
   function handleMouseMove(event: MouseEvent) {
@@ -307,6 +308,7 @@
           stroke-width="1.5"
           class="cursor-move"
           onmousedown={(e) => handlePointMouseDown(index, e)}
+          ondblclick={(e) => handlePointDblClick(index, e)}
         />
       {/each}
     </svg>
