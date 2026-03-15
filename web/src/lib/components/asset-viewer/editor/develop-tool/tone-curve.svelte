@@ -10,7 +10,16 @@
   let histogramPaths = $state<{ master: string; red: string; green: string; blue: string }>({
     master: '', red: '', green: '', blue: ''
   });
-  let paradeCanvas = $state<HTMLCanvasElement | undefined>(undefined);
+  let scopeCanvas = $state<HTMLCanvasElement | undefined>(undefined);
+  type ScopeType = 'parade' | 'waveform' | 'vectorscope' | 'histogram' | 'cie';
+  let activeScopeType = $state<ScopeType>('parade');
+  const scopeTypes: { id: ScopeType; label: string }[] = [
+    { id: 'parade', label: 'Parade' },
+    { id: 'waveform', label: 'Waveform' },
+    { id: 'vectorscope', label: 'Vectorscope' },
+    { id: 'histogram', label: 'Histogram' },
+    { id: 'cie', label: 'CIE Chromaticity' },
+  ];
 
   const MAX_POINTS = 16;
   const POINT_RADIUS = 8; // larger hit target for easier clicking
@@ -22,6 +31,12 @@
   let imgWidth = 0;
   let imgHeight = 0;
   let histTimeout: ReturnType<typeof setTimeout> | undefined;
+
+  // Re-render scope when type changes
+  $effect(() => {
+    const _type = activeScopeType;
+    if (rawPixelData) renderScope();
+  });
 
   // Load image data once when asset changes
   $effect(() => {
@@ -43,7 +58,7 @@
     ];
     if (rawPixelData) {
       if (histTimeout) clearTimeout(histTimeout);
-      histTimeout = setTimeout(() => { updateHistogram(); renderParade(); }, 80);
+      histTimeout = setTimeout(() => { updateHistogram(); renderScope(); }, 80);
     }
   });
 
@@ -68,7 +83,7 @@
       imgWidth = canvas.width;
       imgHeight = canvas.height;
       updateHistogram();
-      renderParade();
+      renderScope();
     } catch {
       // Silently fail — histogram is optional
     }
@@ -101,8 +116,19 @@
     return lut;
   }
 
+  function renderScope() {
+    if (!rawPixelData || !scopeCanvas) return;
+    switch (activeScopeType) {
+      case 'parade': renderParade(); break;
+      case 'waveform': renderWaveform(); break;
+      case 'vectorscope': renderVectorscope(); break;
+      case 'histogram': renderHistogramScope(); break;
+      case 'cie': renderCIE(); break;
+    }
+  }
+
   function renderParade() {
-    if (!rawPixelData || !paradeCanvas) return;
+    if (!rawPixelData || !scopeCanvas) return;
     const data = rawPixelData;
     const curves = developManager.curves;
     const masterLUT = buildCurveLUT(curves.master);
@@ -110,9 +136,9 @@
     const greenLUT = buildCurveLUT(curves.green);
     const blueLUT = buildCurveLUT(curves.blue);
 
-    const canvasW = paradeCanvas.width;
-    const canvasH = paradeCanvas.height;
-    const ctx = paradeCanvas.getContext('2d')!;
+    const canvasW = scopeCanvas.width;
+    const canvasH = scopeCanvas.height;
+    const ctx = scopeCanvas.getContext('2d')!;
 
     // Clear
     ctx.fillStyle = '#171717';
@@ -198,6 +224,331 @@
     ctx.fillText('R', 4, 12);
     ctx.fillText('G', sectionW + gap + 4, 12);
     ctx.fillText('B', 2 * (sectionW + gap) + 4, 12);
+  }
+
+  function renderWaveform() {
+    if (!rawPixelData || !scopeCanvas) return;
+    const data = rawPixelData;
+    const curves = developManager.curves;
+    const masterLUT = buildCurveLUT(curves.master);
+    const redLUT = buildCurveLUT(curves.red);
+    const greenLUT = buildCurveLUT(curves.green);
+    const blueLUT = buildCurveLUT(curves.blue);
+    const W = scopeCanvas.width, H = scopeCanvas.height;
+    const ctx = scopeCanvas.getContext('2d')!;
+    ctx.fillStyle = '#171717';
+    ctx.fillRect(0, 0, W, H);
+
+    // Reference lines
+    ctx.strokeStyle = 'rgba(75,85,99,0.4)';
+    ctx.lineWidth = 0.5;
+    for (const frac of [0.25, 0.5, 0.75]) {
+      ctx.beginPath(); ctx.moveTo(0, H * (1 - frac)); ctx.lineTo(W, H * (1 - frac)); ctx.stroke();
+    }
+
+    // All 3 channels overlaid on same graph
+    const rBuf = new Uint16Array(W * H);
+    const gBuf = new Uint16Array(W * H);
+    const bBuf = new Uint16Array(W * H);
+    const imgW = imgWidth, imgH = imgHeight;
+    if (!imgW || !imgH) return;
+
+    for (let row = 0; row < imgH; row++) {
+      for (let col = 0; col < imgW; col++) {
+        const i = (row * imgW + col) * 4;
+        const r = masterLUT[redLUT[data[i]]];
+        const g = masterLUT[greenLUT[data[i + 1]]];
+        const b = masterLUT[blueLUT[data[i + 2]]];
+        const xBin = Math.floor(col / imgW * W);
+        rBuf[Math.floor((1 - r / 255) * (H - 1)) * W + xBin]++;
+        gBuf[Math.floor((1 - g / 255) * (H - 1)) * W + xBin]++;
+        bBuf[Math.floor((1 - b / 255) * (H - 1)) * W + xBin]++;
+      }
+    }
+
+    let maxVal = 1;
+    for (let i = 0; i < rBuf.length; i++) maxVal = Math.max(maxVal, rBuf[i], gBuf[i], bBuf[i]);
+
+    const imgData = ctx.createImageData(W, H);
+    const px = imgData.data;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const idx = (y * W + x) * 4;
+        const bi = y * W + x;
+        const rd = rBuf[bi] / maxVal, gd = gBuf[bi] / maxVal, bd = bBuf[bi] / maxVal;
+        if (rd > 0 || gd > 0 || bd > 0) {
+          px[idx] = Math.min(255, Math.round(rd * 600));
+          px[idx + 1] = Math.min(255, Math.round(gd * 600));
+          px[idx + 2] = Math.min(255, Math.round(bd * 600));
+          px[idx + 3] = Math.min(255, Math.round(Math.max(rd, gd, bd) * 600));
+        }
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+  }
+
+  function renderVectorscope() {
+    if (!rawPixelData || !scopeCanvas) return;
+    const data = rawPixelData;
+    const curves = developManager.curves;
+    const masterLUT = buildCurveLUT(curves.master);
+    const redLUT = buildCurveLUT(curves.red);
+    const greenLUT = buildCurveLUT(curves.green);
+    const blueLUT = buildCurveLUT(curves.blue);
+    const W = scopeCanvas.width, H = scopeCanvas.height;
+    const ctx = scopeCanvas.getContext('2d')!;
+    ctx.fillStyle = '#171717';
+    ctx.fillRect(0, 0, W, H);
+
+    const cx = W / 2, cy = H / 2, radius = Math.min(cx, cy) - 8;
+
+    // Draw graticule (circle + crosshair)
+    ctx.strokeStyle = 'rgba(75,85,99,0.5)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, cy - radius); ctx.lineTo(cx, cy + radius); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - radius, cy); ctx.lineTo(cx + radius, cy); ctx.stroke();
+
+    // Color target markers (SMPTE: R, G, B, Cy, Mg, Yl)
+    const targets = [
+      { label: 'R', angle: 103.5, color: '#ef4444' },
+      { label: 'YL', angle: 167, color: '#eab308' },
+      { label: 'G', angle: 241, color: '#22c55e' },
+      { label: 'CY', angle: 283.5, color: '#06b6d4' },
+      { label: 'B', angle: 347, color: '#3b82f6' },
+      { label: 'MG', angle: 61, color: '#d946ef' },
+    ];
+    ctx.font = '8px sans-serif';
+    for (const t of targets) {
+      const rad = t.angle * Math.PI / 180;
+      const tx = cx + Math.cos(rad) * radius * 0.75;
+      const ty = cy - Math.sin(rad) * radius * 0.75;
+      ctx.fillStyle = t.color;
+      ctx.beginPath(); ctx.arc(tx, ty, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillText(t.label, tx + 5, ty + 3);
+    }
+
+    // Plot pixels — convert RGB to Cb/Cr (simplified)
+    const buf = new Uint16Array(W * H);
+    const imgW = imgWidth, imgH = imgHeight;
+    if (!imgW || !imgH) return;
+
+    for (let pix = 0; pix < imgW * imgH; pix++) {
+      const i = pix * 4;
+      const r = masterLUT[redLUT[data[i]]] / 255;
+      const g = masterLUT[greenLUT[data[i + 1]]] / 255;
+      const b = masterLUT[blueLUT[data[i + 2]]] / 255;
+      // YCbCr conversion
+      const cb = -0.169 * r - 0.331 * g + 0.5 * b;
+      const cr = 0.5 * r - 0.419 * g - 0.081 * b;
+      const px = Math.round(cx + cr * radius * 2);
+      const py = Math.round(cy - cb * radius * 2);
+      if (px >= 0 && px < W && py >= 0 && py < H) {
+        buf[py * W + px]++;
+      }
+    }
+
+    let maxVal = 1;
+    for (let i = 0; i < buf.length; i++) maxVal = Math.max(maxVal, buf[i]);
+
+    const imgData = ctx.createImageData(W, H);
+    const px = imgData.data;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const d = buf[y * W + x] / maxVal;
+        if (d > 0) {
+          const idx = (y * W + x) * 4;
+          // Color based on position (Cb/Cr → approximate hue)
+          const normX = (x - cx) / radius, normY = (cy - y) / radius;
+          const hue = Math.atan2(normY, normX) / (Math.PI * 2) + 0.5;
+          const [hr, hg, hb] = hueToRgb(hue);
+          const intensity = Math.min(1, d * 8);
+          px[idx] = Math.round(hr * 255 * intensity);
+          px[idx + 1] = Math.round(hg * 255 * intensity);
+          px[idx + 2] = Math.round(hb * 255 * intensity);
+          px[idx + 3] = Math.min(255, Math.round(d * 800));
+        }
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // Redraw graticule on top
+    ctx.strokeStyle = 'rgba(75,85,99,0.3)';
+    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  function hueToRgb(h: number): [number, number, number] {
+    const s = 0.8, l = 0.6;
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const hue2rgb = (t: number) => {
+      if (t < 0) t += 1; if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    return [hue2rgb(h + 1/3), hue2rgb(h), hue2rgb(h - 1/3)];
+  }
+
+  function renderHistogramScope() {
+    if (!rawPixelData || !scopeCanvas) return;
+    const data = rawPixelData;
+    const curves = developManager.curves;
+    const masterLUT = buildCurveLUT(curves.master);
+    const redLUT = buildCurveLUT(curves.red);
+    const greenLUT = buildCurveLUT(curves.green);
+    const blueLUT = buildCurveLUT(curves.blue);
+    const W = scopeCanvas.width, H = scopeCanvas.height;
+    const ctx = scopeCanvas.getContext('2d')!;
+    ctx.fillStyle = '#171717';
+    ctx.fillRect(0, 0, W, H);
+
+    const rH = new Uint32Array(256), gH = new Uint32Array(256), bH = new Uint32Array(256), lH = new Uint32Array(256);
+    for (let i = 0; i < data.length; i += 4) {
+      const r = masterLUT[redLUT[data[i]]], g = masterLUT[greenLUT[data[i + 1]]], b = masterLUT[blueLUT[data[i + 2]]];
+      rH[r]++; gH[g]++; bH[b]++;
+      lH[Math.round(0.299 * r + 0.587 * g + 0.114 * b)]++;
+    }
+
+    const maxVal = Math.max(...rH, ...gH, ...bH, ...lH) || 1;
+
+    // Draw filled histograms with transparency
+    const drawChannel = (hist: Uint32Array, color: string, alpha: number) => {
+      ctx.fillStyle = color;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      for (let i = 0; i < 256; i++) {
+        const x = (i / 255) * W;
+        const h = (hist[i] / maxVal) * H * 0.9;
+        ctx.lineTo(x, H - h);
+      }
+      ctx.lineTo(W, H);
+      ctx.closePath();
+      ctx.fill();
+    };
+
+    drawChannel(lH, '#9ca3af', 0.2);
+    drawChannel(rH, '#ef4444', 0.35);
+    drawChannel(gH, '#22c55e', 0.35);
+    drawChannel(bH, '#3b82f6', 0.35);
+    ctx.globalAlpha = 1;
+
+    // Reference lines
+    ctx.strokeStyle = 'rgba(75,85,99,0.3)';
+    ctx.lineWidth = 0.5;
+    for (const frac of [0.25, 0.5, 0.75]) {
+      ctx.beginPath(); ctx.moveTo(W * frac, 0); ctx.lineTo(W * frac, H); ctx.stroke();
+    }
+  }
+
+  function renderCIE() {
+    if (!rawPixelData || !scopeCanvas) return;
+    const data = rawPixelData;
+    const curves = developManager.curves;
+    const masterLUT = buildCurveLUT(curves.master);
+    const redLUT = buildCurveLUT(curves.red);
+    const greenLUT = buildCurveLUT(curves.green);
+    const blueLUT = buildCurveLUT(curves.blue);
+    const W = scopeCanvas.width, H = scopeCanvas.height;
+    const ctx = scopeCanvas.getContext('2d')!;
+    ctx.fillStyle = '#171717';
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw CIE 1931 horseshoe outline (simplified)
+    const horseshoe = [
+      [0.175, 0.005], [0.174, 0.015], [0.174, 0.045], [0.171, 0.090],
+      [0.160, 0.150], [0.144, 0.214], [0.120, 0.297], [0.091, 0.378],
+      [0.068, 0.431], [0.045, 0.462], [0.023, 0.482], [0.008, 0.490],
+      [0.004, 0.514], [0.012, 0.546], [0.035, 0.580], [0.073, 0.616],
+      [0.117, 0.647], [0.170, 0.673], [0.230, 0.694], [0.295, 0.710],
+      [0.355, 0.714], [0.420, 0.710], [0.480, 0.695], [0.535, 0.667],
+      [0.585, 0.630], [0.625, 0.590], [0.655, 0.550], [0.680, 0.510],
+      [0.700, 0.465], [0.715, 0.420], [0.725, 0.370], [0.734, 0.320],
+      [0.735, 0.265], [0.735, 0.265]
+    ];
+
+    // Scale to canvas (x: 0-0.8 → 10-W-10, y: 0-0.9 → H-10 to 10)
+    const scaleX = (x: number) => 10 + (x / 0.8) * (W - 20);
+    const scaleY = (y: number) => H - 10 - (y / 0.9) * (H - 20);
+
+    ctx.strokeStyle = 'rgba(100,100,100,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(scaleX(horseshoe[0][0]), scaleY(horseshoe[0][1]));
+    for (const [x, y] of horseshoe) ctx.lineTo(scaleX(x), scaleY(y));
+    ctx.closePath();
+    ctx.stroke();
+
+    // D65 white point
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.beginPath(); ctx.arc(scaleX(0.3127), scaleY(0.3290), 3, 0, Math.PI * 2); ctx.fill();
+    ctx.font = '8px sans-serif';
+    ctx.fillText('D65', scaleX(0.3127) + 5, scaleY(0.3290) - 5);
+
+    // Plot image pixels in CIE xy space
+    const buf = new Uint16Array(W * H);
+    const imgW = imgWidth, imgH = imgHeight;
+    if (!imgW || !imgH) return;
+
+    for (let pix = 0; pix < imgW * imgH; pix += 3) { // Sample every 3rd pixel for speed
+      const i = pix * 4;
+      if (i + 2 >= data.length) break;
+      const r = masterLUT[redLUT[data[i]]] / 255;
+      const g = masterLUT[greenLUT[data[i + 1]]] / 255;
+      const b = masterLUT[blueLUT[data[i + 2]]] / 255;
+
+      // Linear sRGB → XYZ (D65)
+      const rl = r <= 0.04045 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
+      const gl = g <= 0.04045 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
+      const bl = b <= 0.04045 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
+
+      const X = 0.4124 * rl + 0.3576 * gl + 0.1805 * bl;
+      const Y = 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
+      const Z = 0.0193 * rl + 0.1192 * gl + 0.9505 * bl;
+      const sum = X + Y + Z;
+      if (sum < 0.001) continue;
+
+      const cx = X / sum;
+      const cy = Y / sum;
+      const px = Math.round(scaleX(cx));
+      const py = Math.round(scaleY(cy));
+      if (px >= 0 && px < W && py >= 0 && py < H) buf[py * W + px]++;
+    }
+
+    let maxVal = 1;
+    for (let i = 0; i < buf.length; i++) maxVal = Math.max(maxVal, buf[i]);
+
+    const imgData = ctx.createImageData(W, H);
+    const px = imgData.data;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const d = buf[y * W + x] / maxVal;
+        if (d > 0) {
+          const idx = (y * W + x) * 4;
+          const intensity = Math.min(1, d * 10);
+          px[idx] = Math.round(200 * intensity);
+          px[idx + 1] = Math.round(220 * intensity);
+          px[idx + 2] = Math.round(255 * intensity);
+          px[idx + 3] = Math.min(255, Math.round(d * 1000));
+        }
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // Redraw outline on top
+    ctx.strokeStyle = 'rgba(100,100,100,0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(scaleX(horseshoe[0][0]), scaleY(horseshoe[0][1]));
+    for (const [hx, hy] of horseshoe) ctx.lineTo(scaleX(hx), scaleY(hy));
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.arc(scaleX(0.3127), scaleY(0.3290), 2, 0, Math.PI * 2); ctx.fill();
   }
 
   function updateHistogram() {
@@ -493,11 +844,18 @@
     Click to add control points • Drag to adjust • Double-click to remove
   </div>
 
-  <!-- Parade Waveform (RGB) -->
+  <!-- Scope viewer (DaVinci-style dropdown) -->
   <div class="mt-2">
-    <div class="text-xs text-gray-400 mb-1">Parade</div>
+    <select
+      class="text-xs bg-gray-800 text-gray-300 border border-gray-700 rounded px-2 py-1 mb-1 cursor-pointer focus:outline-none focus:border-gray-500"
+      bind:value={activeScopeType}
+    >
+      {#each scopeTypes as scope}
+        <option value={scope.id}>{scope.label}</option>
+      {/each}
+    </select>
     <canvas
-      bind:this={paradeCanvas}
+      bind:this={scopeCanvas}
       width={256}
       height={256}
       class="w-full aspect-square rounded bg-neutral-900"
