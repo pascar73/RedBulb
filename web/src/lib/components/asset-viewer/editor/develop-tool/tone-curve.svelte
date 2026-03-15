@@ -1,5 +1,6 @@
 <script lang="ts">
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
+  import { editManager } from '$lib/managers/edit/edit-manager.svelte';
 
   type Channel = 'master' | 'red' | 'green' | 'blue';
   
@@ -8,11 +9,82 @@
   let clickTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingDragIndex: number | null = null;
   let hasDragged = $state(false);
+  let histogramPaths = $state<{ master: string; red: string; green: string; blue: string }>({
+    master: '', red: '', green: '', blue: ''
+  });
 
   const MAX_POINTS = 16;
   const POINT_RADIUS = 6;
   const SVG_SIZE = 256;
   const DOUBLE_CLICK_MS = 300;
+  const HISTOGRAM_BINS = 256;
+
+  // Compute histogram from the current asset
+  $effect(() => {
+    const asset = editManager.currentAsset;
+    if (asset) {
+      computeHistogram(asset.id);
+    }
+  });
+
+  async function computeHistogram(assetId: string) {
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+        img.src = `/api/assets/${assetId}/thumbnail?size=preview`;
+      });
+
+      // Draw to offscreen canvas at small size for speed
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 512 / Math.max(img.naturalWidth, img.naturalHeight));
+      canvas.width = Math.round(img.naturalWidth * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+
+      // Count per channel
+      const rHist = new Uint32Array(HISTOGRAM_BINS);
+      const gHist = new Uint32Array(HISTOGRAM_BINS);
+      const bHist = new Uint32Array(HISTOGRAM_BINS);
+      const lHist = new Uint32Array(HISTOGRAM_BINS);
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        rHist[r]++;
+        gHist[g]++;
+        bHist[b]++;
+        // Luminance approximation
+        lHist[Math.round(0.299 * r + 0.587 * g + 0.114 * b)]++;
+      }
+
+      histogramPaths = {
+        master: buildHistogramPath(lHist),
+        red: buildHistogramPath(rHist),
+        green: buildHistogramPath(gHist),
+        blue: buildHistogramPath(bHist),
+      };
+    } catch {
+      // Silently fail — histogram is optional
+    }
+  }
+
+  function buildHistogramPath(hist: Uint32Array): string {
+    const max = Math.max(...hist) || 1;
+    const points: string[] = [`M 0,${SVG_SIZE}`];
+    for (let i = 0; i < HISTOGRAM_BINS; i++) {
+      const x = (i / 255) * SVG_SIZE;
+      const h = (hist[i] / max) * SVG_SIZE * 0.8; // 80% max height
+      points.push(`L ${x.toFixed(1)},${(SVG_SIZE - h).toFixed(1)}`);
+    }
+    points.push(`L ${SVG_SIZE},${SVG_SIZE} Z`);
+    return points.join(' ');
+  }
 
   const channels: { id: Channel; label: string; color: string }[] = [
     { id: 'master', label: 'Master', color: '#ffffff' },
@@ -190,6 +262,15 @@
           stroke-width="1"
         />
       {/each}
+
+      <!-- Histogram overlay -->
+      {#if histogramPaths[activeChannel]}
+        <path
+          d={histogramPaths[activeChannel]}
+          fill={activeChannel === 'master' ? 'rgba(255,255,255,0.12)' : activeChannel === 'red' ? 'rgba(239,68,68,0.15)' : activeChannel === 'green' ? 'rgba(34,197,94,0.15)' : 'rgba(59,130,246,0.15)'}
+          stroke="none"
+        />
+      {/if}
 
       <!-- Identity diagonal reference (faint) -->
       <line
