@@ -5,10 +5,14 @@
   
   let activeChannel = $state<Channel>('master');
   let draggingIndex = $state<number | null>(null);
+  let clickTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingDragIndex: number | null = null;
+  let hasDragged = $state(false);
 
   const MAX_POINTS = 16;
   const POINT_RADIUS = 6;
   const SVG_SIZE = 256;
+  const DOUBLE_CLICK_MS = 300;
 
   const channels: { id: Channel; label: string; color: string }[] = [
     { id: 'master', label: 'Master', color: '#ffffff' },
@@ -41,14 +45,29 @@
 
   function handlePointMouseDown(index: number, event: MouseEvent) {
     event.stopPropagation();
-    draggingIndex = index;
-  }
+    hasDragged = false;
 
-  function handlePointDoubleClick(index: number, event: MouseEvent) {
-    event.stopPropagation();
-    const points = getPoints();
-    const newPoints = points.filter((_, i) => i !== index);
-    setPoints(newPoints);
+    if (clickTimer !== null) {
+      // Second click within timeout = double-click → delete point
+      clearTimeout(clickTimer);
+      clickTimer = null;
+      pendingDragIndex = null;
+      const points = getPoints();
+      const newPoints = points.filter((_, i) => i !== index);
+      setPoints(newPoints);
+      return;
+    }
+
+    // First click — wait to see if it's a double-click
+    pendingDragIndex = index;
+    clickTimer = setTimeout(() => {
+      // Single click confirmed — start drag
+      clickTimer = null;
+      if (pendingDragIndex !== null) {
+        draggingIndex = pendingDragIndex;
+        pendingDragIndex = null;
+      }
+    }, DOUBLE_CLICK_MS);
   }
 
   function handleMouseMove(event: MouseEvent) {
@@ -202,7 +221,6 @@
           stroke-width="1.5"
           class="cursor-move"
           onmousedown={(e) => handlePointMouseDown(index, e)}
-          ondblclick={(e) => handlePointDoubleClick(index, e)}
         />
       {/each}
     </svg>
