@@ -17,8 +17,17 @@
   $effect(() => {
     // Track all params to trigger re-render
     const params = developManager.params;
+    // Deep-read curves arrays so Svelte 5 tracks mutations
     const curves = developManager.curves;
+    const _trackCurves = [
+      curves.master.length, curves.master.map(p => p.x + p.y).join(),
+      curves.red.length, curves.red.map(p => p.x + p.y).join(),
+      curves.green.length, curves.green.map(p => p.x + p.y).join(),
+      curves.blue.length, curves.blue.map(p => p.x + p.y).join(),
+    ];
+    // Deep-read HSL
     const hsl = developManager.hsl;
+    const _trackHsl = Object.values(hsl).map(ch => `${ch.h}${ch.s}${ch.l}`).join();
     
     // Debounce rendering
     if (renderTimeout) clearTimeout(renderTimeout);

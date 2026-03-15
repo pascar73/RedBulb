@@ -30,8 +30,14 @@
 
   // Recompute histogram when curves change
   $effect(() => {
-    // Track curves to trigger recompute
-    const _curves = developManager.curves;
+    // Deep-read curves arrays so Svelte 5 tracks point mutations
+    const curves = developManager.curves;
+    const _track = [
+      curves.master.length, curves.master.map(p => p.x + p.y).join(),
+      curves.red.length, curves.red.map(p => p.x + p.y).join(),
+      curves.green.length, curves.green.map(p => p.x + p.y).join(),
+      curves.blue.length, curves.blue.map(p => p.x + p.y).join(),
+    ];
     if (rawPixelData) {
       if (histTimeout) clearTimeout(histTimeout);
       histTimeout = setTimeout(() => updateHistogram(), 80);
