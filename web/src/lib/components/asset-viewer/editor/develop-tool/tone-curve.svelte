@@ -263,13 +263,18 @@
         />
       {/each}
 
-      <!-- Histogram overlay -->
-      {#if histogramPaths[activeChannel]}
-        <path
-          d={histogramPaths[activeChannel]}
-          fill={activeChannel === 'master' ? 'rgba(255,255,255,0.12)' : activeChannel === 'red' ? 'rgba(239,68,68,0.15)' : activeChannel === 'green' ? 'rgba(34,197,94,0.15)' : 'rgba(59,130,246,0.15)'}
-          stroke="none"
-        />
+      <!-- Histogram overlay — all channels visible simultaneously (DaVinci-style) -->
+      {#if histogramPaths.master}
+        <path d={histogramPaths.master} fill="rgba(180,180,180,0.10)" stroke="none" />
+      {/if}
+      {#if histogramPaths.red}
+        <path d={histogramPaths.red} fill="rgba(239,68,68,0.12)" stroke="rgba(239,68,68,0.25)" stroke-width="0.5" />
+      {/if}
+      {#if histogramPaths.green}
+        <path d={histogramPaths.green} fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.25)" stroke-width="0.5" />
+      {/if}
+      {#if histogramPaths.blue}
+        <path d={histogramPaths.blue} fill="rgba(59,130,246,0.12)" stroke="rgba(59,130,246,0.25)" stroke-width="0.5" />
       {/if}
 
       <!-- Identity diagonal reference (faint) -->
