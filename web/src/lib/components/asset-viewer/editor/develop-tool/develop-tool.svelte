@@ -97,7 +97,7 @@
 <div class="develop-panel">
   <!-- Basic -->
   <div class="section-card">
-    <button class="section-header" onclick={() => toggleSection('basic')}>
+    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('basic')}>
       <span class="section-title">Basic</span>
       <div class="section-header-right">
         <button
@@ -112,7 +112,7 @@
           </svg>
         </span>
       </div>
-    </button>
+    </div>
     {#if !collapsed.basic}
       <div class="section-content">
         {#each basicSliders as slider}
@@ -150,7 +150,7 @@
 
   <!-- Curves -->
   <div class="section-card">
-    <button class="section-header" onclick={() => toggleSection('curves')}>
+    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('curves')}>
       <span class="section-title">Curves</span>
       <div class="section-header-right">
         <button
@@ -165,7 +165,7 @@
           </svg>
         </span>
       </div>
-    </button>
+    </div>
     {#if !collapsed.curves}
       <div class="section-content">
         <ToneCurve />
@@ -175,7 +175,7 @@
 
   <!-- Color -->
   <div class="section-card">
-    <button class="section-header" onclick={() => toggleSection('color')}>
+    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('color')}>
       <span class="section-title">Color</span>
       <div class="section-header-right">
         <button
@@ -190,7 +190,7 @@
           </svg>
         </span>
       </div>
-    </button>
+    </div>
     {#if !collapsed.color}
       <div class="section-content">
         {#each colorSliders as slider}
@@ -228,7 +228,7 @@
 
   <!-- Details -->
   <div class="section-card">
-    <button class="section-header" onclick={() => toggleSection('details')}>
+    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('details')}>
       <span class="section-title">Details</span>
       <div class="section-header-right">
         <button
@@ -243,7 +243,7 @@
           </svg>
         </span>
       </div>
-    </button>
+    </div>
     {#if !collapsed.details}
       <div class="section-content">
         {#each detailsSliders as slider}
@@ -283,7 +283,7 @@
 
   <!-- Tone -->
   <div class="section-card">
-    <button class="section-header" onclick={() => toggleSection('tone')}>
+    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('tone')}>
       <span class="section-title">Tone</span>
       <div class="section-header-right">
         <button
@@ -298,7 +298,7 @@
           </svg>
         </span>
       </div>
-    </button>
+    </div>
     {#if !collapsed.tone}
       <div class="section-content">
         {#each toneSliders as slider}
@@ -336,7 +336,7 @@
 
   <!-- Effects -->
   <div class="section-card">
-    <button class="section-header" onclick={() => toggleSection('effects')}>
+    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('effects')}>
       <span class="section-title">Effects</span>
       <div class="section-header-right">
         <button
@@ -351,7 +351,7 @@
           </svg>
         </span>
       </div>
-    </button>
+    </div>
     {#if !collapsed.effects}
       <div class="section-content">
         {#each effectsSliders as slider}
@@ -391,7 +391,7 @@
 
   <!-- HSL -->
   <div class="section-card">
-    <button class="section-header" onclick={() => toggleSection('hsl')}>
+    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('hsl')}>
       <span class="section-title">HSL</span>
       <div class="section-header-right">
         <button
@@ -406,7 +406,7 @@
           </svg>
         </span>
       </div>
-    </button>
+    </div>
     {#if !collapsed.hsl}
       <div class="section-content">
         <HslPanel />
