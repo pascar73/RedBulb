@@ -83,8 +83,14 @@
     return Object.values(developManager.hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0);
   }
 
+  let hoveredSlider = $state<string | null>(null);
+
   function formatValue(value: number): string {
     return value.toFixed(2);
+  }
+
+  function isModified(key: string): boolean {
+    return (developManager as any)[key] !== 0;
   }
 </script>
 
@@ -110,14 +116,20 @@
     {#if !collapsed.basic}
       <div class="section-content">
         {#each basicSliders as slider}
-          <div class="slider-row">
+          <div
+            class="slider-row"
+            onmouseenter={() => hoveredSlider = slider.key}
+            onmouseleave={() => hoveredSlider = null}
+          >
             <div class="slider-labels">
-              <label
-                class="slider-label"
-                ondblclick={() => resetSlider(slider.key)}
-              >
-                {slider.label}
-              </label>
+              {#if hoveredSlider === slider.key && isModified(slider.key)}
+                <button
+                  class="reset-label"
+                  onclick={() => resetSlider(slider.key)}
+                >Reset</button>
+              {:else}
+                <label class="slider-label">{slider.label}</label>
+              {/if}
               <span class="slider-value">
                 {formatValue(developManager[slider.key] as number)}
               </span>
@@ -182,14 +194,20 @@
     {#if !collapsed.color}
       <div class="section-content">
         {#each colorSliders as slider}
-          <div class="slider-row">
+          <div
+            class="slider-row"
+            onmouseenter={() => hoveredSlider = slider.key}
+            onmouseleave={() => hoveredSlider = null}
+          >
             <div class="slider-labels">
-              <label
-                class="slider-label"
-                ondblclick={() => resetSlider(slider.key)}
-              >
-                {slider.label}
-              </label>
+              {#if hoveredSlider === slider.key && isModified(slider.key)}
+                <button
+                  class="reset-label"
+                  onclick={() => resetSlider(slider.key)}
+                >Reset</button>
+              {:else}
+                <label class="slider-label">{slider.label}</label>
+              {/if}
               <span class="slider-value">
                 {formatValue(developManager[slider.key] as number)}
               </span>
@@ -229,15 +247,21 @@
     {#if !collapsed.details}
       <div class="section-content">
         {#each detailsSliders as slider}
-          <div class="slider-row" class:disabled={disabledSliders.has(slider.key)}>
+          <div
+            class="slider-row"
+            class:disabled={disabledSliders.has(slider.key)}
+            onmouseenter={() => hoveredSlider = slider.key}
+            onmouseleave={() => hoveredSlider = null}
+          >
             <div class="slider-labels">
-              <label
-                class="slider-label"
-                ondblclick={() => resetSlider(slider.key)}
-                title={disabledSliders.has(slider.key) ? 'WebGPU required' : ''}
-              >
-                {slider.label}
-              </label>
+              {#if hoveredSlider === slider.key && isModified(slider.key)}
+                <button
+                  class="reset-label"
+                  onclick={() => resetSlider(slider.key)}
+                >Reset</button>
+              {:else}
+                <label class="slider-label">{slider.label}</label>
+              {/if}
               <span class="slider-value">
                 {formatValue(developManager[slider.key] as number)}
               </span>
@@ -278,14 +302,20 @@
     {#if !collapsed.tone}
       <div class="section-content">
         {#each toneSliders as slider}
-          <div class="slider-row">
+          <div
+            class="slider-row"
+            onmouseenter={() => hoveredSlider = slider.key}
+            onmouseleave={() => hoveredSlider = null}
+          >
             <div class="slider-labels">
-              <label
-                class="slider-label"
-                ondblclick={() => resetSlider(slider.key)}
-              >
-                {slider.label}
-              </label>
+              {#if hoveredSlider === slider.key && isModified(slider.key)}
+                <button
+                  class="reset-label"
+                  onclick={() => resetSlider(slider.key)}
+                >Reset</button>
+              {:else}
+                <label class="slider-label">{slider.label}</label>
+              {/if}
               <span class="slider-value">
                 {formatValue(developManager[slider.key] as number)}
               </span>
@@ -325,15 +355,21 @@
     {#if !collapsed.effects}
       <div class="section-content">
         {#each effectsSliders as slider}
-          <div class="slider-row" class:disabled={disabledSliders.has(slider.key)}>
+          <div
+            class="slider-row"
+            class:disabled={disabledSliders.has(slider.key)}
+            onmouseenter={() => hoveredSlider = slider.key}
+            onmouseleave={() => hoveredSlider = null}
+          >
             <div class="slider-labels">
-              <label
-                class="slider-label"
-                ondblclick={() => resetSlider(slider.key)}
-                title={disabledSliders.has(slider.key) ? 'WebGPU required' : ''}
-              >
-                {slider.label}
-              </label>
+              {#if hoveredSlider === slider.key && isModified(slider.key)}
+                <button
+                  class="reset-label"
+                  onclick={() => resetSlider(slider.key)}
+                >Reset</button>
+              {:else}
+                <label class="slider-label">{slider.label}</label>
+              {/if}
               <span class="slider-value">
                 {formatValue(developManager[slider.key] as number)}
               </span>
@@ -472,8 +508,24 @@
   .slider-label {
     font-size: 13px;
     color: #d1d5db;
-    cursor: pointer;
+    cursor: default;
     user-select: none;
+  }
+
+  /* "Reset" label appears on hover when slider is modified */
+  .reset-label {
+    font-size: 13px;
+    color: #9ca3af;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-family: inherit;
+    transition: color 0.1s;
+  }
+
+  .reset-label:hover {
+    color: #ffffff;
   }
 
   .slider-value {
