@@ -46,6 +46,21 @@
 
   const disabledSliders = new Set(['vignette', 'grain']);
 
+  // Collapse state for each section
+  let collapsed = $state<Record<string, boolean>>({
+    basic: false,
+    color: false,
+    details: true,
+    tone: true,
+    effects: true,
+    curves: false,
+    hsl: true,
+  });
+
+  function toggleSection(key: string) {
+    collapsed[key] = !collapsed[key];
+  }
+
   function resetSlider(key: string) {
     (developManager as any)[key] = 0;
   }
@@ -60,201 +75,423 @@
     return sliders.some(s => (developManager as any)[s.key] !== 0);
   }
 
+  function curvesHasChanges(): boolean {
+    return Object.values(developManager.curves).some(ch => ch.length > 0);
+  }
+
+  function hslHasChanges(): boolean {
+    return Object.values(developManager.hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0);
+  }
+
   function formatValue(value: number): string {
     return value.toFixed(2);
   }
 </script>
 
-<div class="mt-3 px-4">
-  <div class="flex h-10 w-full items-center justify-between text-sm mt-2">
-    <h2>Basic</h2>
-    <button class="section-reset" class:has-changes={sectionHasChanges(basicSliders)} title="Reset Basic" onclick={() => resetSection(basicSliders)}>↺</button>
-  </div>
-
-  <div class="space-y-4 mt-4">
-    {#each basicSliders as slider}
-      <div class="flex flex-col gap-1">
-        <div class="flex justify-between items-center">
-          <label
-            class="text-sm text-white cursor-pointer select-none"
-            ondblclick={() => resetSlider(slider.key)}
-          >
-            {slider.label}
-          </label>
-          <span class="text-sm text-gray-400 font-mono w-16 text-right">
-            {formatValue(developManager[slider.key] as number)}
-          </span>
-        </div>
-        <input
-          type="range"
-          min={slider.min}
-          max={slider.max}
-          step={slider.step}
-          bind:value={developManager[slider.key]}
-          class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-        />
+<div class="develop-panel">
+  <!-- Basic -->
+  <div class="section-card">
+    <button class="section-header" onclick={() => toggleSection('basic')}>
+      <span class="section-title">Basic</span>
+      <div class="section-header-right">
+        <button
+          class="section-reset"
+          class:has-changes={sectionHasChanges(basicSliders)}
+          title="Reset Basic"
+          onclick={(e) => { e.stopPropagation(); resetSection(basicSliders); }}
+        >↺</button>
+        <span class="chevron" class:collapsed={collapsed.basic}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </span>
       </div>
-    {/each}
-  </div>
-
-  <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
-    <h2>Color</h2>
-    <button class="section-reset" class:has-changes={sectionHasChanges(colorSliders)} title="Reset Color" onclick={() => resetSection(colorSliders)}>↺</button>
-  </div>
-
-  <div class="space-y-4 mt-4">
-    {#each colorSliders as slider}
-      <div class="flex flex-col gap-1">
-        <div class="flex justify-between items-center">
-          <label
-            class="text-sm text-white cursor-pointer select-none"
-            ondblclick={() => resetSlider(slider.key)}
-          >
-            {slider.label}
-          </label>
-          <span class="text-sm text-gray-400 font-mono w-16 text-right">
-            {formatValue(developManager[slider.key] as number)}
-          </span>
-        </div>
-        <input
-          type="range"
-          min={slider.min}
-          max={slider.max}
-          step={slider.step}
-          bind:value={developManager[slider.key]}
-          class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-        />
+    </button>
+    {#if !collapsed.basic}
+      <div class="section-content">
+        {#each basicSliders as slider}
+          <div class="slider-row">
+            <div class="slider-labels">
+              <label
+                class="slider-label"
+                ondblclick={() => resetSlider(slider.key)}
+              >
+                {slider.label}
+              </label>
+              <span class="slider-value">
+                {formatValue(developManager[slider.key] as number)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={slider.min}
+              max={slider.max}
+              step={slider.step}
+              bind:value={developManager[slider.key]}
+              class="slider"
+            />
+          </div>
+        {/each}
       </div>
-    {/each}
+    {/if}
   </div>
 
-  <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
-    <h2>Details</h2>
-    <button class="section-reset" class:has-changes={sectionHasChanges(detailsSliders)} title="Reset Details" onclick={() => resetSection(detailsSliders)}>↺</button>
-  </div>
-
-  <div class="space-y-4 mt-4">
-    {#each detailsSliders as slider}
-      <div class="flex flex-col gap-1" class:opacity-40={disabledSliders.has(slider.key)}>
-        <div class="flex justify-between items-center">
-          <label
-            class="text-sm text-white cursor-pointer select-none"
-            ondblclick={() => resetSlider(slider.key)}
-            title={disabledSliders.has(slider.key) ? 'WebGPU required' : ''}
-          >
-            {slider.label}
-          </label>
-          <span class="text-sm text-gray-400 font-mono w-16 text-right">
-            {formatValue(developManager[slider.key] as number)}
-          </span>
-        </div>
-        <input
-          type="range"
-          min={slider.min}
-          max={slider.max}
-          step={slider.step}
-          bind:value={developManager[slider.key]}
-          disabled={disabledSliders.has(slider.key)}
-          class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-        />
+  <!-- Curves -->
+  <div class="section-card">
+    <button class="section-header" onclick={() => toggleSection('curves')}>
+      <span class="section-title">Curves</span>
+      <div class="section-header-right">
+        <button
+          class="section-reset"
+          class:has-changes={curvesHasChanges()}
+          title="Reset Curves"
+          onclick={(e) => { e.stopPropagation(); developManager.curves = { master: [], red: [], green: [], blue: [] }; }}
+        >↺</button>
+        <span class="chevron" class:collapsed={collapsed.curves}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </span>
       </div>
-    {/each}
-  </div>
-
-  <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
-    <h2>Tone</h2>
-    <button class="section-reset" class:has-changes={sectionHasChanges(toneSliders)} title="Reset Tone" onclick={() => resetSection(toneSliders)}>↺</button>
-  </div>
-
-  <div class="space-y-4 mt-4">
-    {#each toneSliders as slider}
-      <div class="flex flex-col gap-1">
-        <div class="flex justify-between items-center">
-          <label
-            class="text-sm text-white cursor-pointer select-none"
-            ondblclick={() => resetSlider(slider.key)}
-          >
-            {slider.label}
-          </label>
-          <span class="text-sm text-gray-400 font-mono w-16 text-right">
-            {formatValue(developManager[slider.key] as number)}
-          </span>
-        </div>
-        <input
-          type="range"
-          min={slider.min}
-          max={slider.max}
-          step={slider.step}
-          bind:value={developManager[slider.key]}
-          class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-        />
+    </button>
+    {#if !collapsed.curves}
+      <div class="section-content">
+        <ToneCurve />
       </div>
-    {/each}
+    {/if}
   </div>
 
-  <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
-    <h2>Effects</h2>
-    <button class="section-reset" class:has-changes={sectionHasChanges(effectsSliders)} title="Reset Effects" onclick={() => resetSection(effectsSliders)}>↺</button>
-  </div>
-
-  <div class="space-y-4 mt-4">
-    {#each effectsSliders as slider}
-      <div class="flex flex-col gap-1" class:opacity-40={disabledSliders.has(slider.key)}>
-        <div class="flex justify-between items-center">
-          <label
-            class="text-sm text-white cursor-pointer select-none"
-            ondblclick={() => resetSlider(slider.key)}
-            title={disabledSliders.has(slider.key) ? 'WebGPU required' : ''}
-          >
-            {slider.label}
-          </label>
-          <span class="text-sm text-gray-400 font-mono w-16 text-right">
-            {formatValue(developManager[slider.key] as number)}
-          </span>
-        </div>
-        <input
-          type="range"
-          min={slider.min}
-          max={slider.max}
-          step={slider.step}
-          bind:value={developManager[slider.key]}
-          disabled={disabledSliders.has(slider.key)}
-          class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-        />
+  <!-- Color -->
+  <div class="section-card">
+    <button class="section-header" onclick={() => toggleSection('color')}>
+      <span class="section-title">Color</span>
+      <div class="section-header-right">
+        <button
+          class="section-reset"
+          class:has-changes={sectionHasChanges(colorSliders)}
+          title="Reset Color"
+          onclick={(e) => { e.stopPropagation(); resetSection(colorSliders); }}
+        >↺</button>
+        <span class="chevron" class:collapsed={collapsed.color}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </span>
       </div>
-    {/each}
+    </button>
+    {#if !collapsed.color}
+      <div class="section-content">
+        {#each colorSliders as slider}
+          <div class="slider-row">
+            <div class="slider-labels">
+              <label
+                class="slider-label"
+                ondblclick={() => resetSlider(slider.key)}
+              >
+                {slider.label}
+              </label>
+              <span class="slider-value">
+                {formatValue(developManager[slider.key] as number)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={slider.min}
+              max={slider.max}
+              step={slider.step}
+              bind:value={developManager[slider.key]}
+              class="slider"
+            />
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 
-  <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
-    <h2>Curves</h2>
-    <button class="section-reset" class:has-changes={Object.values(developManager.curves).some(ch => ch.length > 0)} title="Reset Curves" onclick={() => { developManager.curves = { master: [], red: [], green: [], blue: [] }; }}>↺</button>
+  <!-- Details -->
+  <div class="section-card">
+    <button class="section-header" onclick={() => toggleSection('details')}>
+      <span class="section-title">Details</span>
+      <div class="section-header-right">
+        <button
+          class="section-reset"
+          class:has-changes={sectionHasChanges(detailsSliders)}
+          title="Reset Details"
+          onclick={(e) => { e.stopPropagation(); resetSection(detailsSliders); }}
+        >↺</button>
+        <span class="chevron" class:collapsed={collapsed.details}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </span>
+      </div>
+    </button>
+    {#if !collapsed.details}
+      <div class="section-content">
+        {#each detailsSliders as slider}
+          <div class="slider-row" class:disabled={disabledSliders.has(slider.key)}>
+            <div class="slider-labels">
+              <label
+                class="slider-label"
+                ondblclick={() => resetSlider(slider.key)}
+                title={disabledSliders.has(slider.key) ? 'WebGPU required' : ''}
+              >
+                {slider.label}
+              </label>
+              <span class="slider-value">
+                {formatValue(developManager[slider.key] as number)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={slider.min}
+              max={slider.max}
+              step={slider.step}
+              bind:value={developManager[slider.key]}
+              disabled={disabledSliders.has(slider.key)}
+              class="slider"
+            />
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 
-  <div class="mt-4">
-    <ToneCurve />
+  <!-- Tone -->
+  <div class="section-card">
+    <button class="section-header" onclick={() => toggleSection('tone')}>
+      <span class="section-title">Tone</span>
+      <div class="section-header-right">
+        <button
+          class="section-reset"
+          class:has-changes={sectionHasChanges(toneSliders)}
+          title="Reset Tone"
+          onclick={(e) => { e.stopPropagation(); resetSection(toneSliders); }}
+        >↺</button>
+        <span class="chevron" class:collapsed={collapsed.tone}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </span>
+      </div>
+    </button>
+    {#if !collapsed.tone}
+      <div class="section-content">
+        {#each toneSliders as slider}
+          <div class="slider-row">
+            <div class="slider-labels">
+              <label
+                class="slider-label"
+                ondblclick={() => resetSlider(slider.key)}
+              >
+                {slider.label}
+              </label>
+              <span class="slider-value">
+                {formatValue(developManager[slider.key] as number)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={slider.min}
+              max={slider.max}
+              step={slider.step}
+              bind:value={developManager[slider.key]}
+              class="slider"
+            />
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 
-  <div class="flex h-10 w-full items-center justify-between text-sm mt-8">
-    <h2>HSL</h2>
-    <button class="section-reset" class:has-changes={Object.values(developManager.hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0)} title="Reset HSL" onclick={() => { for (const ch of Object.keys(developManager.hsl)) { (developManager.hsl as any)[ch] = { h: 0, s: 0, l: 0 }; } }}>↺</button>
+  <!-- Effects -->
+  <div class="section-card">
+    <button class="section-header" onclick={() => toggleSection('effects')}>
+      <span class="section-title">Effects</span>
+      <div class="section-header-right">
+        <button
+          class="section-reset"
+          class:has-changes={sectionHasChanges(effectsSliders)}
+          title="Reset Effects"
+          onclick={(e) => { e.stopPropagation(); resetSection(effectsSliders); }}
+        >↺</button>
+        <span class="chevron" class:collapsed={collapsed.effects}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </span>
+      </div>
+    </button>
+    {#if !collapsed.effects}
+      <div class="section-content">
+        {#each effectsSliders as slider}
+          <div class="slider-row" class:disabled={disabledSliders.has(slider.key)}>
+            <div class="slider-labels">
+              <label
+                class="slider-label"
+                ondblclick={() => resetSlider(slider.key)}
+                title={disabledSliders.has(slider.key) ? 'WebGPU required' : ''}
+              >
+                {slider.label}
+              </label>
+              <span class="slider-value">
+                {formatValue(developManager[slider.key] as number)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={slider.min}
+              max={slider.max}
+              step={slider.step}
+              bind:value={developManager[slider.key]}
+              disabled={disabledSliders.has(slider.key)}
+              class="slider"
+            />
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 
-  <div class="mt-4">
-    <HslPanel />
+  <!-- HSL -->
+  <div class="section-card">
+    <button class="section-header" onclick={() => toggleSection('hsl')}>
+      <span class="section-title">HSL</span>
+      <div class="section-header-right">
+        <button
+          class="section-reset"
+          class:has-changes={hslHasChanges()}
+          title="Reset HSL"
+          onclick={(e) => { e.stopPropagation(); for (const ch of Object.keys(developManager.hsl)) { (developManager.hsl as any)[ch] = { h: 0, s: 0, l: 0 }; } }}
+        >↺</button>
+        <span class="chevron" class:collapsed={collapsed.hsl}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </span>
+      </div>
+    </button>
+    {#if !collapsed.hsl}
+      <div class="section-content">
+        <HslPanel />
+      </div>
+    {/if}
   </div>
-
-  <!-- Reset handled by Immich's built-in "Reset changes" button in editor-panel -->
 </div>
 
 <style>
-  /* Per-section reset button — always visible, dim when no changes */
-  .section-reset {
-    width: 24px;
-    height: 24px;
+  .develop-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px 16px;
+  }
+
+  /* Collapsible card container — RapidRAW style */
+  .section-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+
+  .section-card:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  /* Section header — clickable to toggle */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 10px 14px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+  }
+
+  .section-header:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #e5e7eb;
+    letter-spacing: 0.02em;
+  }
+
+  .section-header-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Chevron rotation */
+  .chevron {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    color: #6b7280;
+    transition: transform 0.2s ease;
+  }
+
+  .chevron.collapsed {
+    transform: rotate(180deg);
+  }
+
+  /* Section content with padding */
+  .section-content {
+    padding: 4px 14px 14px;
+  }
+
+  /* Slider rows */
+  .slider-row {
+    margin-bottom: 10px;
+  }
+
+  .slider-row:last-child {
+    margin-bottom: 0;
+  }
+
+  .slider-row.disabled {
+    opacity: 0.4;
+  }
+
+  .slider-labels {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
+  .slider-label {
+    font-size: 13px;
+    color: #d1d5db;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .slider-value {
+    font-size: 12px;
+    color: #6b7280;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    min-width: 48px;
+    text-align: right;
+  }
+
+  /* Per-section reset button */
+  .section-reset {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
     color: #4b5563;
     background: transparent;
     border: none;
@@ -262,55 +499,62 @@
     cursor: default;
     pointer-events: none;
     transition: color 0.15s, background 0.15s;
+    padding: 0;
   }
+
   .section-reset.has-changes {
     color: #9ca3af;
     cursor: pointer;
     pointer-events: auto;
   }
+
   .section-reset.has-changes:hover {
     color: #ffffff;
-    background: #374151;
+    background: rgba(255, 255, 255, 0.1);
   }
 
-  /* Custom slider styling to match Immich dark theme */
+  /* Slider track and thumb */
   .slider {
+    width: 100%;
+    height: 6px;
+    background: #2d3748;
+    border-radius: 3px;
     -webkit-appearance: none;
     appearance: none;
+    cursor: pointer;
+    outline: none;
   }
 
   .slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 16px;
-    height: 16px;
-    background: white;
+    width: 14px;
+    height: 14px;
+    background: #ffffff;
     cursor: pointer;
     border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   }
 
   .slider::-moz-range-thumb {
-    width: 16px;
-    height: 16px;
-    background: white;
+    width: 14px;
+    height: 14px;
+    background: #ffffff;
     cursor: pointer;
     border-radius: 50%;
     border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   }
 
-  .slider::-webkit-slider-track {
-    width: 100%;
-    height: 8px;
-    cursor: pointer;
-    background: #374151;
-    border-radius: 4px;
+  .slider::-webkit-slider-runnable-track {
+    height: 6px;
+    background: #2d3748;
+    border-radius: 3px;
   }
 
   .slider::-moz-range-track {
-    width: 100%;
-    height: 8px;
-    cursor: pointer;
-    background: #374151;
-    border-radius: 4px;
+    height: 6px;
+    background: #2d3748;
+    border-radius: 3px;
   }
 </style>
