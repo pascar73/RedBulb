@@ -2,6 +2,7 @@
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
   import ToneCurve from './tone-curve.svelte';
   import HslPanel from './hsl-panel.svelte';
+  import ColorWheels from './color-wheels.svelte';
 
   interface SliderConfig {
     label: string;
@@ -49,6 +50,7 @@
   // Collapse state for each section
   let collapsed = $state<Record<string, boolean>>({
     basic: false,
+    colorWheels: false,
     color: false,
     details: true,
     tone: true,
@@ -169,6 +171,31 @@
     {#if !collapsed.curves}
       <div class="section-content">
         <ToneCurve />
+      </div>
+    {/if}
+  </div>
+
+  <!-- Color Wheels (3-way grading) -->
+  <div class="section-card">
+    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('colorWheels')}>
+      <span class="section-title">Color Wheels</span>
+      <div class="section-header-right">
+        <button
+          class="section-reset"
+          class:has-changes={Object.values(developManager.colorWheels).some(w => w.hue !== 0 || w.sat !== 0 || w.lum !== 0)}
+          title="Reset Color Wheels"
+          onclick={(e) => { e.stopPropagation(); developManager.colorWheels = { shadows: { hue: 0, sat: 0, lum: 0 }, midtones: { hue: 0, sat: 0, lum: 0 }, highlights: { hue: 0, sat: 0, lum: 0 } }; }}
+        >↺</button>
+        <span class="chevron" class:collapsed={collapsed.colorWheels}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </span>
+      </div>
+    </div>
+    {#if !collapsed.colorWheels}
+      <div class="section-content">
+        <ColorWheels />
       </div>
     {/if}
   </div>

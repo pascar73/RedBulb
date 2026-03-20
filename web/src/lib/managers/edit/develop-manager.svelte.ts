@@ -38,6 +38,13 @@ class DevelopManager implements EditToolManager {
     blue: [] as Array<{x: number, y: number}>,
   });
 
+  // Color Wheels — 3-way color grading (shadows/midtones/highlights)
+  colorWheels = $state({
+    shadows: { hue: 0, sat: 0, lum: 0 },
+    midtones: { hue: 0, sat: 0, lum: 0 },
+    highlights: { hue: 0, sat: 0, lum: 0 },
+  });
+
   // HSL adjustments per color channel
   hsl = $state({
     red: { h: 0, s: 0, l: 0 },
@@ -81,12 +88,17 @@ class DevelopManager implements EditToolManager {
       this.curves.blue.length > 0
     );
 
+    // Check color wheels
+    const hasColorWheelChanges = Object.values(this.colorWheels).some(
+      w => w.hue !== 0 || w.sat !== 0 || w.lum !== 0
+    );
+
     // Check HSL (any channel has non-zero values)
     const hasHslChanges = Object.values(this.hsl).some(
       channel => channel.h !== 0 || channel.s !== 0 || channel.l !== 0
     );
 
-    return hasParamChanges || hasCurveChanges || hasHslChanges;
+    return hasParamChanges || hasCurveChanges || hasColorWheelChanges || hasHslChanges;
   });
 
   canReset = $derived(this.hasChanges);
@@ -114,7 +126,8 @@ class DevelopManager implements EditToolManager {
     grain: this.grain,
     fade: this.fade,
     curves: this.curves,
-    hsl: this.hsl
+    hsl: this.hsl,
+    colorWheels: this.colorWheels
   }));
 
   async onActivate(asset: AssetResponseDto, edits: EditActions): Promise<void> {
@@ -151,6 +164,11 @@ class DevelopManager implements EditToolManager {
     this.curves.red = [];
     this.curves.green = [];
     this.curves.blue = [];
+
+    // Reset color wheels
+    this.colorWheels.shadows = { hue: 0, sat: 0, lum: 0 };
+    this.colorWheels.midtones = { hue: 0, sat: 0, lum: 0 };
+    this.colorWheels.highlights = { hue: 0, sat: 0, lum: 0 };
 
     // Reset HSL
     Object.keys(this.hsl).forEach((channel) => {
