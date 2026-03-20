@@ -448,6 +448,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 8px 12px 16px;
+    overflow-x: hidden;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   /* Collapsible card container — RapidRAW style */
@@ -592,16 +595,23 @@
     background: rgba(255, 255, 255, 0.1);
   }
 
-  /* Slider track and thumb */
+  /* Slider track and thumb — vertically centered */
   .slider {
     width: 100%;
-    height: 6px;
-    background: #2d3748;
-    border-radius: 3px;
+    height: 14px;
+    background: transparent;
     -webkit-appearance: none;
     appearance: none;
     cursor: pointer;
     outline: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .slider::-webkit-slider-runnable-track {
+    height: 4px;
+    background: #2d3748;
+    border-radius: 2px;
   }
 
   .slider::-webkit-slider-thumb {
@@ -613,6 +623,13 @@
     cursor: pointer;
     border-radius: 50%;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    margin-top: -5px;
+  }
+
+  .slider::-moz-range-track {
+    height: 4px;
+    background: #2d3748;
+    border-radius: 2px;
   }
 
   .slider::-moz-range-thumb {
@@ -623,17 +640,5 @@
     border-radius: 50%;
     border: none;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-  }
-
-  .slider::-webkit-slider-runnable-track {
-    height: 6px;
-    background: #2d3748;
-    border-radius: 3px;
-  }
-
-  .slider::-moz-range-track {
-    height: 6px;
-    background: #2d3748;
-    border-radius: 3px;
   }
 </style>

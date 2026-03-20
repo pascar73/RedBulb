@@ -815,6 +815,26 @@
         fill="none"
       />
 
+      <!-- Fixed anchor points at (0,0%) and (100,100%) -->
+      <circle
+        cx="0"
+        cy={SVG_SIZE}
+        r={POINT_RADIUS - 2}
+        fill="none"
+        stroke={channels.find(c => c.id === activeChannel)?.color}
+        stroke-width="1.5"
+        opacity="0.5"
+      />
+      <circle
+        cx={SVG_SIZE}
+        cy="0"
+        r={POINT_RADIUS - 2}
+        fill="none"
+        stroke={channels.find(c => c.id === activeChannel)?.color}
+        stroke-width="1.5"
+        opacity="0.5"
+      />
+
       <!-- Control points -->
       {#each getPoints() as point, index}
         {@const svgX = point.x * SVG_SIZE}

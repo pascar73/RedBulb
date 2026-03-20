@@ -56,7 +56,7 @@
 
 <svelte:document use:shortcut={{ shortcut: { key: 'Escape' }, onShortcut: onClose }} />
 
-<section class="relative flex flex-col min-h-full p-2 bg-immich-dark-bg text-immich-dark-fg dark pt-3">
+<section class="relative flex flex-col min-h-full p-2 bg-immich-dark-bg text-immich-dark-fg dark pt-3 overflow-x-hidden overflow-y-auto">
   <HStack class="justify-between me-4">
     <HStack>
       <IconButton

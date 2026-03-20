@@ -588,7 +588,7 @@
           <DetailPanel {asset} currentAlbum={album} />
         </div>
       {:else if assetViewerManager.isShowEditor}
-        <div class="w-100 h-full">
+        <div class="h-full editor-panel-wrapper">
           <EditorPanel {asset} onClose={closeEditor} />
         </div>
       {/if}
@@ -676,5 +676,14 @@
   .horizontal-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #adcbfa;
     border-radius: 16px;
+  }
+
+  /* Resizable editor panel */
+  .editor-panel-wrapper {
+    width: 350px;
+    min-width: 280px;
+    max-width: 700px;
+    resize: horizontal;
+    overflow: hidden;
   }
 </style>
