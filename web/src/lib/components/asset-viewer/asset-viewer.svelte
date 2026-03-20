@@ -254,6 +254,48 @@
 
   let assetViewerHtmlElement = $state<HTMLElement>();
 
+  // Editor panel resize
+  let editorPanelEl = $state<HTMLElement>();
+  let editorPanelWidth = $state(350);
+  const EDITOR_MIN_WIDTH = 280;
+  const EDITOR_MAX_WIDTH = 700;
+
+  function startEditorResize(event: MouseEvent) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = editorPanelWidth;
+
+    function onMove(e: MouseEvent) {
+      const delta = startX - e.clientX;
+      editorPanelWidth = Math.max(EDITOR_MIN_WIDTH, Math.min(EDITOR_MAX_WIDTH, startWidth + delta));
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  function startEditorResizeTouch(event: TouchEvent) {
+    event.preventDefault();
+    const startX = event.touches[0].clientX;
+    const startWidth = editorPanelWidth;
+
+    function onMove(e: TouchEvent) {
+      if (e.touches.length > 0) {
+        const delta = startX - e.touches[0].clientX;
+        editorPanelWidth = Math.max(EDITOR_MIN_WIDTH, Math.min(EDITOR_MAX_WIDTH, startWidth + delta));
+      }
+    }
+    function onEnd() {
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onEnd);
+    }
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onEnd);
+  }
+
   const slideshowHistory = new SlideshowHistory((asset) => {
     handlePromiseError(setAssetId(asset.id).then(() => ($restartSlideshowProgress = true)));
   });
@@ -588,7 +630,15 @@
           <DetailPanel {asset} currentAlbum={album} />
         </div>
       {:else if assetViewerManager.isShowEditor}
-        <div class="h-full editor-panel-wrapper">
+        <div class="h-full editor-panel-wrapper" bind:this={editorPanelEl} style="width: {editorPanelWidth}px">
+          <!-- Resize handle (left edge) -->
+          <div
+            class="editor-resize-handle"
+            role="separator"
+            aria-orientation="vertical"
+            onmousedown={startEditorResize}
+            ontouchstart={startEditorResizeTouch}
+          ></div>
           <EditorPanel {asset} onClose={closeEditor} />
         </div>
       {/if}
@@ -680,10 +730,28 @@
 
   /* Resizable editor panel */
   .editor-panel-wrapper {
-    width: 350px;
+    position: relative;
     min-width: 280px;
     max-width: 700px;
-    resize: horizontal;
     overflow: hidden;
+  }
+
+  /* Drag handle on the left edge */
+  .editor-resize-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    z-index: 10;
+    background: transparent;
+    touch-action: none;
+    transition: background 0.15s;
+  }
+
+  .editor-resize-handle:hover,
+  .editor-resize-handle:active {
+    background: rgba(99, 102, 241, 0.4);
   }
 </style>
