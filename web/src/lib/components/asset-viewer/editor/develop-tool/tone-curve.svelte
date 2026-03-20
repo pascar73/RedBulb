@@ -648,6 +648,13 @@
     draggingIndex = index;
   }
 
+  function handlePointTouchStart(index: number, event: TouchEvent) {
+    event.stopPropagation();
+    event.preventDefault();
+    pointClicked = true;
+    draggingIndex = index;
+  }
+
   function handlePointDblClick(index: number, event: MouseEvent) {
     event.stopPropagation();
     event.preventDefault();
@@ -660,26 +667,40 @@
 
   let svgElement = $state<SVGSVGElement | undefined>(undefined);
 
-  function handleMouseMove(event: MouseEvent) {
+  function updateDragPosition(clientX: number, clientY: number) {
     if (draggingIndex === null || !svgElement) return;
 
     const rect = svgElement.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    const y = Math.max(0, Math.min(1, 1 - (event.clientY - rect.top) / rect.height));
+    const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
 
     const points = getPoints();
     const newPoints = [...points];
     newPoints[draggingIndex] = { x, y };
-    // Re-sort after moving
     newPoints.sort((a, b) => a.x - b.x);
-    // Update dragging index after sort
     const movedPoint = { x, y };
     const newIndex = newPoints.findIndex(p => p.x === movedPoint.x && p.y === movedPoint.y);
     if (newIndex !== -1) draggingIndex = newIndex;
     setPoints(newPoints);
   }
 
+  function handleMouseMove(event: MouseEvent) {
+    updateDragPosition(event.clientX, event.clientY);
+  }
+
+  function handleTouchMove(event: TouchEvent) {
+    if (draggingIndex !== null && event.touches.length > 0) {
+      event.preventDefault();
+      updateDragPosition(event.touches[0].clientX, event.touches[0].clientY);
+    }
+  }
+
   function handleMouseUp() {
+    draggingIndex = null;
+    pointClicked = false;
+  }
+
+  function handleTouchEnd() {
     draggingIndex = null;
     pointClicked = false;
   }
@@ -741,6 +762,8 @@
 <svelte:window
   onmousemove={handleMouseMove}
   onmouseup={handleMouseUp}
+  ontouchmove={handleTouchMove}
+  ontouchend={handleTouchEnd}
 />
 
 <div class="flex flex-col gap-2">
@@ -766,6 +789,7 @@
       bind:this={svgElement}
       viewBox="0 0 {SVG_SIZE} {SVG_SIZE}"
       class="w-full aspect-square bg-neutral-900 rounded cursor-crosshair select-none"
+      style="touch-action: none"
       onclick={handleSvgClick}
     >
       <!-- Grid lines -->
@@ -848,6 +872,7 @@
           stroke-width="1.5"
           class="cursor-move"
           onmousedown={(e) => handlePointMouseDown(index, e)}
+          ontouchstart={(e) => handlePointTouchStart(index, e)}
           ondblclick={(e) => handlePointDblClick(index, e)}
         />
       {/each}
