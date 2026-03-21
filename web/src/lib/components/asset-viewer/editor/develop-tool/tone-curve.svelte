@@ -22,6 +22,15 @@
     { id: 'cie', label: '+ CIE Chromaticity' },
   ];
 
+  // DaVinci-style scope controls
+  let scopeBrightness = $state(1.0);   // 0.2 - 3.0 — multiplier for scope intensity
+  let graticuleOpacity = $state(0.4);  // 0 - 1
+  let showRefLevels = $state(true);
+  let refLow = $state(10);            // 0-255 (mapped to % in display)
+  let refHigh = $state(235);          // 0-255
+  let colorizeWaveform = $state(true); // colorized vs monochrome waveform
+  let scopeControlsOpen = $state(false);
+
   const MAX_POINTS = 16;
   const POINT_RADIUS = 8; // larger hit target for easier clicking
   const SVG_SIZE = 256;
@@ -33,9 +42,15 @@
   let imgHeight = 0;
   let histTimeout: ReturnType<typeof setTimeout> | undefined;
 
-  // Re-render scope when type changes
+  // Re-render scope when type or controls change
   $effect(() => {
     const _type = activeScopeType;
+    const _bright = scopeBrightness;
+    const _grat = graticuleOpacity;
+    const _ref = showRefLevels;
+    const _lo = refLow;
+    const _hi = refHigh;
+    const _col = colorizeWaveform;
     if (rawPixelData) renderScope();
   });
 
@@ -126,11 +141,73 @@
     const ctx = scopeCanvas.getContext('2d')!;
     ctx.clearRect(0, 0, scopeCanvas.width, scopeCanvas.height);
     switch (activeScopeType) {
-      case 'none': break; // histogram only — scope canvas stays transparent
+      case 'none': break;
       case 'parade': renderParade(); break;
       case 'waveform': renderWaveform(); break;
       case 'vectorscope': renderVectorscope(); break;
       case 'cie': renderCIE(); break;
+    }
+    // Draw graticule and reference levels on top of scope
+    if (activeScopeType !== 'none') {
+      drawGraticule();
+    }
+  }
+
+  /** Draw reference lines and levels on the scope canvas */
+  function drawGraticule() {
+    if (!scopeCanvas) return;
+    const W = scopeCanvas.width, H = scopeCanvas.height;
+    const ctx = scopeCanvas.getContext('2d')!;
+    const isVectorscope = activeScopeType === 'vectorscope';
+
+    if (isVectorscope) {
+      // Circular graticule for vectorscope
+      const cx = W / 2, cy = H / 2, radius = Math.min(cx, cy) - 8;
+      ctx.strokeStyle = `rgba(75, 85, 99, ${graticuleOpacity})`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy - radius); ctx.lineTo(cx, cy + radius); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - radius, cy); ctx.lineTo(cx + radius, cy); ctx.stroke();
+    } else {
+      // Horizontal reference lines at 25/50/75%
+      ctx.strokeStyle = `rgba(75, 85, 99, ${graticuleOpacity})`;
+      ctx.lineWidth = 0.5;
+      for (const frac of [0.25, 0.5, 0.75]) {
+        const lineY = H * (1 - frac);
+        ctx.beginPath();
+        ctx.moveTo(0, lineY);
+        ctx.lineTo(W, lineY);
+        ctx.stroke();
+      }
+
+      // Reference levels (Low / High)
+      if (showRefLevels) {
+        const lowY = H * (1 - refLow / 255);
+        const highY = H * (1 - refHigh / 255);
+
+        ctx.strokeStyle = `rgba(59, 130, 246, ${graticuleOpacity * 0.8})`;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+
+        ctx.beginPath();
+        ctx.moveTo(0, lowY);
+        ctx.lineTo(W, lowY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(0, highY);
+        ctx.lineTo(W, highY);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+
+        // Labels
+        ctx.font = '9px sans-serif';
+        ctx.fillStyle = `rgba(59, 130, 246, ${Math.min(1, graticuleOpacity + 0.2)})`;
+        ctx.fillText(`${refLow}`, 3, lowY - 3);
+        ctx.fillText(`${refHigh}`, 3, highY + 11);
+      }
     }
   }
 
@@ -189,19 +266,7 @@
     const canvasW = scopeCanvas.width;
     const canvasH = scopeCanvas.height;
     const ctx = scopeCanvas.getContext('2d')!;
-
-
-
-    // Draw 10%/90% reference lines
-    ctx.strokeStyle = 'rgba(75,85,99,0.4)';
-    ctx.lineWidth = 0.5;
-    for (const frac of [0.25, 0.5, 0.75]) {
-      const lineY = canvasH * (1 - frac);
-      ctx.beginPath();
-      ctx.moveTo(0, lineY);
-      ctx.lineTo(canvasW, lineY);
-      ctx.stroke();
-    }
+    const gain = scopeBrightness;
 
     const imgW = imgWidth;
     const imgH = imgHeight;
@@ -255,7 +320,7 @@
           const density = buf[y * sectionW + x] / maxVal;
           if (density > 0) {
             const idx = (y * sectionW + x) * 4;
-            const alpha = Math.min(255, Math.round(density * 600));
+            const alpha = Math.min(255, Math.round(density * 600 * gain));
             pixels[idx] = color[0];
             pixels[idx + 1] = color[1];
             pixels[idx + 2] = color[2];
@@ -284,13 +349,7 @@
     const blueLUT = buildCurveLUT(curves.blue);
     const W = scopeCanvas.width, H = scopeCanvas.height;
     const ctx = scopeCanvas.getContext('2d')!;
-
-    // Reference lines
-    ctx.strokeStyle = 'rgba(75,85,99,0.4)';
-    ctx.lineWidth = 0.5;
-    for (const frac of [0.25, 0.5, 0.75]) {
-      ctx.beginPath(); ctx.moveTo(0, H * (1 - frac)); ctx.lineTo(W, H * (1 - frac)); ctx.stroke();
-    }
+    const gain = scopeBrightness;
 
     // All 3 channels overlaid on same graph
     const rBuf = new Uint16Array(W * H);
@@ -323,10 +382,17 @@
         const bi = y * W + x;
         const rd = rBuf[bi] / maxVal, gd = gBuf[bi] / maxVal, bd = bBuf[bi] / maxVal;
         if (rd > 0 || gd > 0 || bd > 0) {
-          px[idx] = Math.min(255, Math.round(rd * 600));
-          px[idx + 1] = Math.min(255, Math.round(gd * 600));
-          px[idx + 2] = Math.min(255, Math.round(bd * 600));
-          px[idx + 3] = Math.min(255, Math.round(Math.max(rd, gd, bd) * 600));
+          const g600 = 600 * gain;
+          if (colorizeWaveform) {
+            px[idx] = Math.min(255, Math.round(rd * g600));
+            px[idx + 1] = Math.min(255, Math.round(gd * g600));
+            px[idx + 2] = Math.min(255, Math.round(bd * g600));
+          } else {
+            const lum = Math.max(rd, gd, bd);
+            const v = Math.min(255, Math.round(lum * g600));
+            px[idx] = v; px[idx + 1] = v; px[idx + 2] = v;
+          }
+          px[idx + 3] = Math.min(255, Math.round(Math.max(rd, gd, bd) * g600));
         }
       }
     }
@@ -343,16 +409,11 @@
     const blueLUT = buildCurveLUT(curves.blue);
     const W = scopeCanvas.width, H = scopeCanvas.height;
     const ctx = scopeCanvas.getContext('2d')!;
+    const gain = scopeBrightness;
 
     const cx = W / 2, cy = H / 2, radius = Math.min(cx, cy) - 8;
 
-    // Draw graticule (circle + crosshair)
-    ctx.strokeStyle = 'rgba(75,85,99,0.5)';
-    ctx.lineWidth = 0.5;
-    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx, cy - radius); ctx.lineTo(cx, cy + radius); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx - radius, cy); ctx.lineTo(cx + radius, cy); ctx.stroke();
+    // Graticule circles/crosshair handled by drawGraticule() after render
 
     // Color target markers (SMPTE: R, G, B, Cy, Mg, Yl)
     const targets = [
@@ -407,20 +468,17 @@
           const normX = (x - cx) / radius, normY = (cy - y) / radius;
           const hue = Math.atan2(normY, normX) / (Math.PI * 2) + 0.5;
           const [hr, hg, hb] = hueToRgb(hue);
-          const intensity = Math.min(1, d * 8);
+          const intensity = Math.min(1, d * 8 * gain);
           px[idx] = Math.round(hr * 255 * intensity);
           px[idx + 1] = Math.round(hg * 255 * intensity);
           px[idx + 2] = Math.round(hb * 255 * intensity);
-          px[idx + 3] = Math.min(255, Math.round(d * 800));
+          px[idx + 3] = Math.min(255, Math.round(d * 800 * gain));
         }
       }
     }
     ctx.putImageData(imgData, 0, 0);
 
-    // Redraw graticule on top
-    ctx.strokeStyle = 'rgba(75,85,99,0.3)';
-    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2); ctx.stroke();
+    // Graticule redrawn by drawGraticule() after all renderers
   }
 
   function hueToRgb(h: number): [number, number, number] {
@@ -785,8 +843,52 @@
         <option value={scope.id}>{scope.label}</option>
       {/each}
     </select>
-    <span class="text-xs text-gray-500">scope overlay</span>
+    <!-- Scope controls toggle -->
+    <button
+      class="text-xs px-1.5 py-0.5 rounded transition-colors"
+      class:bg-gray-700={scopeControlsOpen}
+      class:text-gray-400={!scopeControlsOpen}
+      class:text-white={scopeControlsOpen}
+      onclick={() => scopeControlsOpen = !scopeControlsOpen}
+      title="Scope display settings"
+    >⚙</button>
   </div>
+
+  <!-- DaVinci-style scope controls -->
+  {#if scopeControlsOpen}
+    <div class="scope-controls">
+      <div class="ctrl-row">
+        <label>Brightness</label>
+        <input type="range" min="0.2" max="3" step="0.1" bind:value={scopeBrightness} />
+        <span>{scopeBrightness.toFixed(1)}×</span>
+      </div>
+      <div class="ctrl-row">
+        <label>Graticule</label>
+        <input type="range" min="0" max="1" step="0.05" bind:value={graticuleOpacity} />
+        <span>{Math.round(graticuleOpacity * 100)}%</span>
+      </div>
+      <div class="ctrl-row">
+        <label class="flex items-center gap-1">
+          <input type="checkbox" bind:checked={colorizeWaveform} class="accent-indigo-500" />
+          Colorize
+        </label>
+      </div>
+      <div class="ctrl-row">
+        <label class="flex items-center gap-1">
+          <input type="checkbox" bind:checked={showRefLevels} class="accent-indigo-500" />
+          Ref Levels
+        </label>
+        {#if showRefLevels}
+          <div class="ref-inputs">
+            <span>Lo</span>
+            <input type="number" min="0" max="255" bind:value={refLow} class="ref-num" />
+            <span>Hi</span>
+            <input type="number" min="0" max="255" bind:value={refHigh} class="ref-num" />
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
 
   <!-- Curve editor with histogram + scope backdrop -->
   <div class="relative">
@@ -902,3 +1004,98 @@
 
 
 </div>
+
+<style>
+  .scope-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    font-size: 10px;
+    color: #9ca3af;
+  }
+
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ctrl-row label {
+    min-width: 60px;
+    font-size: 10px;
+    color: #9ca3af;
+  }
+
+  .ctrl-row input[type="range"] {
+    flex: 1;
+    height: 3px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .ctrl-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #9ca3af;
+    border: 1px solid #6b7280;
+    cursor: pointer;
+  }
+
+  .ctrl-row input[type="range"]::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #9ca3af;
+    border: 1px solid #6b7280;
+    cursor: pointer;
+  }
+
+  .ctrl-row span {
+    min-width: 28px;
+    text-align: right;
+    font-size: 10px;
+    font-family: 'SF Mono', monospace;
+    color: #6b7280;
+  }
+
+  .ref-inputs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+    font-size: 10px;
+  }
+
+  .ref-inputs span {
+    color: #6b7280;
+    min-width: auto;
+  }
+
+  .ref-num {
+    width: 36px;
+    padding: 1px 3px;
+    font-size: 10px;
+    font-family: 'SF Mono', monospace;
+    color: #d1d5db;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 3px;
+    outline: none;
+    text-align: center;
+  }
+
+  .ref-num:focus {
+    border-color: rgba(99, 102, 241, 0.5);
+  }
+</style>
