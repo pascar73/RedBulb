@@ -10,16 +10,15 @@
   let histogramPaths = $state<{ master: string; red: string; green: string; blue: string }>({
     master: '', red: '', green: '', blue: ''
   });
-  let histogramCanvas = $state<HTMLCanvasElement | undefined>(undefined);
   let scopeCanvas = $state<HTMLCanvasElement | undefined>(undefined);
-  type ScopeType = 'none' | 'parade' | 'waveform' | 'vectorscope' | 'cie';
-  let activeScopeType = $state<ScopeType>('none');
+  type ScopeType = 'histogram' | 'parade' | 'waveform' | 'vectorscope' | 'cie';
+  let activeScopeType = $state<ScopeType>('histogram');
   const scopeTypes: { id: ScopeType; label: string }[] = [
-    { id: 'none', label: 'Histogram Only' },
-    { id: 'parade', label: '+ Parade' },
-    { id: 'waveform', label: '+ Waveform' },
-    { id: 'vectorscope', label: '+ Vectorscope' },
-    { id: 'cie', label: '+ CIE Chromaticity' },
+    { id: 'histogram', label: 'Histogram' },
+    { id: 'parade', label: 'Parade' },
+    { id: 'waveform', label: 'Waveform' },
+    { id: 'vectorscope', label: 'Vectorscope' },
+    { id: 'cie', label: 'CIE Chromaticity' },
   ];
 
   // DaVinci-style scope controls
@@ -133,24 +132,17 @@
   }
 
   function renderScope() {
-    if (!rawPixelData) return;
-    // Always render histogram on the histogram canvas (permanent backdrop)
-    renderHistogramBackdrop();
-    // Render selected scope overlay on the scope canvas
-    if (!scopeCanvas) return;
+    if (!rawPixelData || !scopeCanvas) return;
     const ctx = scopeCanvas.getContext('2d')!;
     ctx.clearRect(0, 0, scopeCanvas.width, scopeCanvas.height);
     switch (activeScopeType) {
-      case 'none': break;
+      case 'histogram': renderHistogramBackdrop(); break;
       case 'parade': renderParade(); break;
       case 'waveform': renderWaveform(); break;
       case 'vectorscope': renderVectorscope(); break;
       case 'cie': renderCIE(); break;
     }
-    // Draw graticule and reference levels on top of scope
-    if (activeScopeType !== 'none') {
-      drawGraticule();
-    }
+    drawGraticule();
   }
 
   /** Draw reference lines and levels on the scope canvas */
@@ -212,16 +204,15 @@
   }
 
   function renderHistogramBackdrop() {
-    if (!rawPixelData || !histogramCanvas) return;
+    if (!rawPixelData || !scopeCanvas) return;
     const data = rawPixelData;
     const curves = developManager.curves;
     const masterLUT = buildCurveLUT(curves.master);
     const redLUT = buildCurveLUT(curves.red);
     const greenLUT = buildCurveLUT(curves.green);
     const blueLUT = buildCurveLUT(curves.blue);
-    const W = histogramCanvas.width, H = histogramCanvas.height;
-    const ctx = histogramCanvas.getContext('2d')!;
-    ctx.clearRect(0, 0, W, H);
+    const W = scopeCanvas.width, H = scopeCanvas.height;
+    const ctx = scopeCanvas.getContext('2d')!;
 
     const rH = new Uint32Array(256), gH = new Uint32Array(256), bH = new Uint32Array(256), lH = new Uint32Array(256);
     for (let i = 0; i < data.length; i += 4) {
@@ -890,31 +881,22 @@
     </div>
   {/if}
 
-  <!-- Curve editor with histogram + scope backdrop -->
+  <!-- Curve editor with scope backdrop -->
   <div class="relative">
-    <!-- Histogram canvas (always visible, bottom layer) -->
+    <!-- Scope canvas (behind curves SVG) -->
     <canvas
-      bind:this={histogramCanvas}
+      bind:this={scopeCanvas}
       width={256}
       height={256}
       class="absolute inset-0 w-full h-full rounded"
       style="z-index: 0; pointer-events: none; opacity: 0.6;"
     ></canvas>
 
-    <!-- Scope overlay canvas (on top of histogram, below curves) -->
-    <canvas
-      bind:this={scopeCanvas}
-      width={256}
-      height={256}
-      class="absolute inset-0 w-full h-full rounded"
-      style="z-index: 1; pointer-events: none; opacity: 0.5;"
-    ></canvas>
-
     <svg
       bind:this={svgElement}
       viewBox="0 0 {SVG_SIZE} {SVG_SIZE}"
       class="w-full aspect-square rounded cursor-crosshair select-none"
-      style="touch-action: none; position: relative; z-index: 2; background: rgba(23, 23, 23, 0.3);"
+      style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.3);"
       onclick={handleSvgClick}
     >
       <!-- Grid lines -->
