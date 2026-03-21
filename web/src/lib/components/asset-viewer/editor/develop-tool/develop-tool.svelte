@@ -3,6 +3,7 @@
   import ToneCurve from './tone-curve.svelte';
   import HslPanel from './hsl-panel.svelte';
   import ColorWheels from './color-wheels.svelte';
+  import FloatingPanel from './floating-panel.svelte';
 
   interface SliderConfig {
     label: string;
@@ -46,6 +47,9 @@
   ];
 
   const disabledSliders = new Set(['vignette', 'grain']);
+
+  // Pop-out state for curves/scopes
+  let curvesPoppedOut = $state(false);
 
   // Collapse state for each section
   let collapsed = $state<Record<string, boolean>>({
@@ -151,29 +155,57 @@
   </div>
 
   <!-- Curves -->
-  <div class="section-card">
-    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('curves')}>
-      <span class="section-title">Curves</span>
-      <div class="section-header-right">
-        <button
-          class="section-reset"
-          class:has-changes={curvesHasChanges()}
-          title="Reset Curves"
-          onclick={(e) => { e.stopPropagation(); developManager.curves = { master: [], red: [], green: [], blue: [] }; }}
-        >↺</button>
-        <span class="chevron" class:collapsed={collapsed.curves}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
-          </svg>
-        </span>
+  {#if !curvesPoppedOut}
+    <div class="section-card">
+      <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('curves')}>
+        <span class="section-title">Curves</span>
+        <div class="section-header-right">
+          <button
+            class="section-popout"
+            title="Pop out to floating window"
+            onclick={(e) => { e.stopPropagation(); curvesPoppedOut = true; }}
+          >⤢</button>
+          <button
+            class="section-reset"
+            class:has-changes={curvesHasChanges()}
+            title="Reset Curves"
+            onclick={(e) => { e.stopPropagation(); developManager.curves = { master: [], red: [], green: [], blue: [] }; }}
+          >↺</button>
+          <span class="chevron" class:collapsed={collapsed.curves}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+              <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+          </span>
+        </div>
+      </div>
+      {#if !collapsed.curves}
+        <div class="section-content">
+          <ToneCurve />
+        </div>
+      {/if}
+    </div>
+  {:else}
+    <!-- Collapsed placeholder when popped out -->
+    <div class="section-card popped-out-placeholder">
+      <div class="section-header" role="button" tabindex="0" onclick={() => curvesPoppedOut = false}>
+        <span class="section-title popped-label">Curves ↗</span>
+        <div class="section-header-right">
+          <button
+            class="section-popout active"
+            title="Collapse back to panel"
+            onclick={(e) => { e.stopPropagation(); curvesPoppedOut = false; }}
+          >⤡</button>
+        </div>
       </div>
     </div>
-    {#if !collapsed.curves}
-      <div class="section-content">
-        <ToneCurve />
-      </div>
-    {/if}
-  </div>
+  {/if}
+
+  <!-- Floating Curves Window -->
+  {#if curvesPoppedOut}
+    <FloatingPanel title="Curves & Scopes" onClose={() => curvesPoppedOut = false}>
+      <ToneCurve />
+    </FloatingPanel>
+  {/if}
 
   <!-- Color Wheels (3-way grading) -->
   <div class="section-card">
@@ -593,6 +625,42 @@
   .section-reset.has-changes:hover {
     color: #ffffff;
     background: rgba(255, 255, 255, 0.1);
+  }
+
+  /* Pop-out button */
+  .section-popout {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: #6b7280;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.15s, background 0.15s;
+  }
+
+  .section-popout:hover {
+    color: #a5b4fc;
+    background: rgba(99, 102, 241, 0.15);
+  }
+
+  .section-popout.active {
+    color: #a5b4fc;
+  }
+
+  .popped-out-placeholder {
+    opacity: 0.6;
+    border-style: dashed;
+  }
+
+  .popped-label {
+    font-style: italic;
+    color: #9ca3af !important;
   }
 
   /* Slider track and thumb — vertically centered */
