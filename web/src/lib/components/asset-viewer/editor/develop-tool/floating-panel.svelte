@@ -10,17 +10,17 @@
 
   let { title, onClose, children, footer }: Props = $props();
 
-  // Position & size state
+  // Position & size state (aspect ratio locked)
+  const CHROME_H = 110; // title bar + footer + channel tabs + dropdown + instructions
+  const ASPECT = 1; // square scope area
   let panelX = $state(80);
   let panelY = $state(80);
   let panelW = $state(400);
-  let panelH = $state(520);
+  let panelH = $derived(panelW * ASPECT + CHROME_H);
   let opacity = $state(0.92);
 
-  const MIN_W = 300;
-  const MIN_H = 350;
-  const MAX_W = 900;
-  const MAX_H = 900;
+  const MIN_W = 280;
+  const MAX_W = 800;
 
   // Drag state
   let dragging = $state(false);
@@ -109,6 +109,7 @@
     const dx = clientX - resizeStartX;
     const dy = clientY - resizeStartY;
 
+    // Only adjust width — height is derived (aspect ratio locked)
     if (resizing.includes('e')) {
       panelW = Math.max(MIN_W, Math.min(MAX_W, resizeStartW + dx));
     }
@@ -117,13 +118,14 @@
       panelX = resizeStartPX + (resizeStartW - newW);
       panelW = newW;
     }
-    if (resizing.includes('s')) {
-      panelH = Math.max(MIN_H, Math.min(MAX_H, resizeStartH + dy));
+    // For south/north edges, map dy to width change to maintain ratio
+    if (resizing.includes('s') && !resizing.includes('e') && !resizing.includes('w')) {
+      panelW = Math.max(MIN_W, Math.min(MAX_W, resizeStartW + dy));
     }
-    if (resizing.includes('n')) {
-      const newH = Math.max(MIN_H, Math.min(MAX_H, resizeStartH - dy));
-      panelY = resizeStartPY + (resizeStartH - newH);
-      panelH = newH;
+    if (resizing.includes('n') && !resizing.includes('e') && !resizing.includes('w')) {
+      const newW = Math.max(MIN_W, Math.min(MAX_W, resizeStartW - dy));
+      panelY = resizeStartPY + (resizeStartH - (newW * ASPECT + CHROME_H));
+      panelW = newW;
     }
   }
 </script>

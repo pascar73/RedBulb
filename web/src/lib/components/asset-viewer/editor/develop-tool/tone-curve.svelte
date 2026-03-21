@@ -31,8 +31,13 @@
   let scopeControlsOpen = $state(false);
 
   const MAX_POINTS = 16;
-  const POINT_RADIUS = 8; // larger hit target for easier clicking
+  const POINT_RADIUS_PX = 6; // constant pixel size for control points
   const SVG_SIZE = 256;
+
+  // Track SVG rendered size to keep control points constant pixel size
+  let svgRenderedWidth = $state(256);
+  let pointRadius = $derived(POINT_RADIUS_PX * (SVG_SIZE / svgRenderedWidth));
+  let strokeScale = $derived(SVG_SIZE / svgRenderedWidth);
   const HISTOGRAM_BINS = 256;
 
   // Cached raw pixel data from the original image
@@ -40,6 +45,18 @@
   let imgWidth = 0;
   let imgHeight = 0;
   let histTimeout: ReturnType<typeof setTimeout> | undefined;
+
+  // Track SVG rendered size for constant-pixel-size control points
+  $effect(() => {
+    if (!svgElement) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        svgRenderedWidth = entry.contentRect.width || 256;
+      }
+    });
+    ro.observe(svgElement);
+    return () => ro.disconnect();
+  });
 
   // Re-render scope when type or controls change
   $effect(() => {
@@ -238,10 +255,11 @@
       ctx.fill();
     };
 
-    drawChannel(lH, '#9ca3af', 0.15);
-    drawChannel(rH, '#ef4444', 0.3);
-    drawChannel(gH, '#22c55e', 0.3);
-    drawChannel(bH, '#3b82f6', 0.3);
+    const gain = scopeBrightness;
+    drawChannel(lH, '#9ca3af', 0.15 * gain);
+    drawChannel(rH, '#ef4444', 0.3 * gain);
+    drawChannel(gH, '#22c55e', 0.3 * gain);
+    drawChannel(bH, '#3b82f6', 0.3 * gain);
     ctx.globalAlpha = 1;
   }
 
@@ -834,6 +852,18 @@
         <option value={scope.id}>{scope.label}</option>
       {/each}
     </select>
+    <!-- Scope intensity slider (always visible) -->
+    <input
+      type="range"
+      min="0.2"
+      max="3"
+      step="0.1"
+      bind:value={scopeBrightness}
+      class="scope-intensity-slider"
+      title="Scope intensity"
+    />
+    <span class="text-xs text-gray-500 font-mono" style="min-width:28px">{scopeBrightness.toFixed(1)}×</span>
+
     <!-- Scope controls toggle -->
     <button
       class="text-xs px-1.5 py-0.5 rounded transition-colors"
@@ -841,7 +871,7 @@
       class:text-gray-400={!scopeControlsOpen}
       class:text-white={scopeControlsOpen}
       onclick={() => scopeControlsOpen = !scopeControlsOpen}
-      title="Scope display settings"
+      title="More scope settings"
     >⚙</button>
   </div>
 
@@ -930,7 +960,7 @@
       <path
         d={getCurvePath()}
         stroke={channels.find(c => c.id === activeChannel)?.color}
-        stroke-width="2"
+        stroke-width={strokeScale * 2}
         fill="none"
       />
 
@@ -938,19 +968,19 @@
       <circle
         cx="0"
         cy={SVG_SIZE}
-        r={POINT_RADIUS - 2}
+        r={pointRadius * 0.7}
         fill="none"
         stroke={channels.find(c => c.id === activeChannel)?.color}
-        stroke-width="1.5"
+        stroke-width={strokeScale * 1.5}
         opacity="0.5"
       />
       <circle
         cx={SVG_SIZE}
         cy="0"
-        r={POINT_RADIUS - 2}
+        r={pointRadius * 0.7}
         fill="none"
         stroke={channels.find(c => c.id === activeChannel)?.color}
-        stroke-width="1.5"
+        stroke-width={strokeScale * 1.5}
         opacity="0.5"
       />
 
@@ -961,10 +991,10 @@
         <circle
           cx={svgX}
           cy={svgY}
-          r={POINT_RADIUS}
+          r={pointRadius}
           fill={channels.find(c => c.id === activeChannel)?.color}
           stroke="#000"
-          stroke-width="1.5"
+          stroke-width={strokeScale * 1.5}
           class="cursor-move"
           onmousedown={(e) => handlePointMouseDown(index, e)}
           ontouchstart={(e) => handlePointTouchStart(index, e)}
@@ -1079,5 +1109,36 @@
 
   .ref-num:focus {
     border-color: rgba(99, 102, 241, 0.5);
+  }
+
+  .scope-intensity-slider {
+    width: 60px;
+    height: 3px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: linear-gradient(to right, rgba(255,255,255,0.1), rgba(255,255,255,0.4));
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .scope-intensity-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #9ca3af;
+    border: 1px solid #6b7280;
+    cursor: pointer;
+  }
+
+  .scope-intensity-slider::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #9ca3af;
+    border: 1px solid #6b7280;
+    cursor: pointer;
   }
 </style>
