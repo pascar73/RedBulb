@@ -87,6 +87,11 @@
       curves.red.length, curves.red.map(p => p.x + p.y).join(),
       curves.green.length, curves.green.map(p => p.x + p.y).join(),
       curves.blue.length, curves.blue.map(p => p.x + p.y).join(),
+      // Track endpoint changes too
+      endpoints.master.black, endpoints.master.white,
+      endpoints.red.black, endpoints.red.white,
+      endpoints.green.black, endpoints.green.white,
+      endpoints.blue.black, endpoints.blue.white,
     ];
     if (rawPixelData) {
       if (histTimeout) clearTimeout(histTimeout);
@@ -664,12 +669,33 @@
     { id: 'blue', label: 'Blue', color: '#3b82f6' },
   ];
 
+  // Endpoint state: black point (x=0) and white point (x=1) per channel
+  // These are the draggable anchor points — y is adjustable, x is locked
+  let endpoints = $state<Record<Channel, { black: number; white: number }>>({
+    master: { black: 0, white: 1 },
+    red: { black: 0, white: 1 },
+    green: { black: 0, white: 1 },
+    blue: { black: 0, white: 1 },
+  });
+
+  // -1 = dragging black point, -2 = dragging white point
+  let draggingEndpoint = $state<number | null>(null);
+
   function getPoints() {
     return developManager.curves[activeChannel];
   }
 
   function setPoints(points: Array<{ x: number; y: number }>) {
     developManager.curves[activeChannel] = points;
+  }
+
+  function getAllPointsWithEndpoints() {
+    const ep = endpoints[activeChannel];
+    return [
+      { x: 0, y: ep.black },
+      ...getPoints(),
+      { x: 1, y: ep.white }
+    ].sort((a, b) => a.x - b.x);
   }
 
   function handleSvgClick(event: MouseEvent) {
@@ -727,11 +753,22 @@
   let svgElement = $state<SVGSVGElement | undefined>(undefined);
 
   function updateDragPosition(clientX: number, clientY: number) {
-    if (draggingIndex === null || !svgElement) return;
-
+    if (!svgElement) return;
     const rect = svgElement.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const y = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
+
+    // Handle endpoint dragging (x locked, only y moves)
+    if (draggingEndpoint === -1) {
+      endpoints[activeChannel].black = y;
+      return;
+    }
+    if (draggingEndpoint === -2) {
+      endpoints[activeChannel].white = y;
+      return;
+    }
+
+    if (draggingIndex === null) return;
+    const x = Math.max(0.01, Math.min(0.99, (clientX - rect.left) / rect.width));
 
     const points = getPoints();
     const newPoints = [...points];
@@ -744,11 +781,13 @@
   }
 
   function handleMouseMove(event: MouseEvent) {
-    updateDragPosition(event.clientX, event.clientY);
+    if (draggingIndex !== null || draggingEndpoint !== null) {
+      updateDragPosition(event.clientX, event.clientY);
+    }
   }
 
   function handleTouchMove(event: TouchEvent) {
-    if (draggingIndex !== null && event.touches.length > 0) {
+    if ((draggingIndex !== null || draggingEndpoint !== null) && event.touches.length > 0) {
       event.preventDefault();
       updateDragPosition(event.touches[0].clientX, event.touches[0].clientY);
     }
@@ -756,11 +795,13 @@
 
   function handleMouseUp() {
     draggingIndex = null;
+    draggingEndpoint = null;
     pointClicked = false;
   }
 
   function handleTouchEnd() {
     draggingIndex = null;
+    draggingEndpoint = null;
     pointClicked = false;
   }
 
@@ -771,11 +812,12 @@
       return `M 0,${SVG_SIZE} L ${SVG_SIZE},0`;
     }
 
-    // Include endpoints
+    // Include draggable endpoints
+    const ep = endpoints[activeChannel];
     const allPoints = [
-      { x: 0, y: 0 },
+      { x: 0, y: ep.black },
       ...points,
-      { x: 1, y: 1 }
+      { x: 1, y: ep.white }
     ].sort((a, b) => a.x - b.x);
 
     const n = allPoints.length;
@@ -964,24 +1006,33 @@
         fill="none"
       />
 
-      <!-- Fixed anchor points at (0,0%) and (100,100%) -->
+      <!-- Draggable endpoint: black point (x=0) -->
       <circle
         cx="0"
-        cy={SVG_SIZE}
-        r={pointRadius * 0.7}
-        fill="none"
+        cy={(1 - endpoints[activeChannel].black) * SVG_SIZE}
+        r={pointRadius}
+        fill={endpoints[activeChannel].black !== 0 ? channels.find(c => c.id === activeChannel)?.color : 'none'}
         stroke={channels.find(c => c.id === activeChannel)?.color}
         stroke-width={strokeScale * 1.5}
-        opacity="0.5"
+        opacity={endpoints[activeChannel].black !== 0 ? 1 : 0.5}
+        class="cursor-ns-resize"
+        onmousedown={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -1; }}
+        ontouchstart={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -1; }}
+        ondblclick={(e) => { e.stopPropagation(); e.preventDefault(); endpoints[activeChannel].black = 0; }}
       />
+      <!-- Draggable endpoint: white point (x=1) -->
       <circle
         cx={SVG_SIZE}
-        cy="0"
-        r={pointRadius * 0.7}
-        fill="none"
+        cy={(1 - endpoints[activeChannel].white) * SVG_SIZE}
+        r={pointRadius}
+        fill={endpoints[activeChannel].white !== 1 ? channels.find(c => c.id === activeChannel)?.color : 'none'}
         stroke={channels.find(c => c.id === activeChannel)?.color}
         stroke-width={strokeScale * 1.5}
-        opacity="0.5"
+        opacity={endpoints[activeChannel].white !== 1 ? 1 : 0.5}
+        class="cursor-ns-resize"
+        onmousedown={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -2; }}
+        ontouchstart={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -2; }}
+        ondblclick={(e) => { e.stopPropagation(); e.preventDefault(); endpoints[activeChannel].white = 1; }}
       />
 
       <!-- Control points -->
