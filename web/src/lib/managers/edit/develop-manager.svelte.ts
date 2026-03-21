@@ -15,6 +15,17 @@ class DevelopManager implements EditToolManager {
   saturation = $state(0);
   temperature = $state(0);
 
+  // Curve endpoints (black point / white point per channel)
+  curveEndpoints = $state({
+    master: { black: 0, white: 1 },
+    red: { black: 0, white: 1 },
+    green: { black: 0, white: 1 },
+    blue: { black: 0, white: 1 },
+  });
+
+  // Eyedropper mode — when true, clicking the photo samples WB
+  eyedropperActive = $state(false);
+
   // Details parameters
   sharpness = $state(0);
   noiseReduction = $state(0);
@@ -93,12 +104,17 @@ class DevelopManager implements EditToolManager {
       w => w.hue !== 0 || w.sat !== 0 || w.lum !== 0
     );
 
+    // Check curve endpoints
+    const hasEndpointChanges = Object.values(this.curveEndpoints).some(
+      ep => ep.black !== 0 || ep.white !== 1
+    );
+
     // Check HSL (any channel has non-zero values)
     const hasHslChanges = Object.values(this.hsl).some(
       channel => channel.h !== 0 || channel.s !== 0 || channel.l !== 0
     );
 
-    return hasParamChanges || hasCurveChanges || hasColorWheelChanges || hasHslChanges;
+    return hasParamChanges || hasCurveChanges || hasColorWheelChanges || hasHslChanges || hasEndpointChanges;
   });
 
   canReset = $derived(this.hasChanges);
@@ -126,13 +142,14 @@ class DevelopManager implements EditToolManager {
     grain: this.grain,
     fade: this.fade,
     curves: this.curves,
+    curveEndpoints: this.curveEndpoints,
     hsl: this.hsl,
     colorWheels: this.colorWheels
   }));
 
   async onActivate(asset: AssetResponseDto, edits: EditActions): Promise<void> {
-    // No special activation needed for now
-    // In future sprints, we'll load existing develop edits from the server
+    // Load saved edits from localStorage
+    this.loadFromStorage(asset.id);
   }
 
   onDeactivate(): void {
@@ -165,6 +182,14 @@ class DevelopManager implements EditToolManager {
     this.curves.green = [];
     this.curves.blue = [];
 
+    // Reset curve endpoints
+    this.curveEndpoints.master = { black: 0, white: 1 };
+    this.curveEndpoints.red = { black: 0, white: 1 };
+    this.curveEndpoints.green = { black: 0, white: 1 };
+    this.curveEndpoints.blue = { black: 0, white: 1 };
+
+    this.eyedropperActive = false;
+
     // Reset color wheels
     this.colorWheels.shadows = { hue: 0, sat: 0, lum: 0 };
     this.colorWheels.midtones = { hue: 0, sat: 0, lum: 0 };
@@ -176,10 +201,156 @@ class DevelopManager implements EditToolManager {
     });
   }
 
+  /** Save current edits to localStorage for the given asset */
+  saveToStorage(assetId: string): void {
+    if (!assetId) return;
+    const key = `redbulb-edits-${assetId}`;
+    const data = this.serialize();
+    if (!this.hasChanges) {
+      // No changes — remove saved data
+      localStorage.removeItem(key);
+      return;
+    }
+    localStorage.setItem(key, JSON.stringify(data));
+  }
+
+  /** Load saved edits from localStorage for the given asset */
+  loadFromStorage(assetId: string): void {
+    if (!assetId) return;
+    const key = `redbulb-edits-${assetId}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      this.deserialize(data);
+    } catch {
+      // Corrupted data — ignore
+    }
+  }
+
+  /** Check if an asset has saved edits */
+  hasSavedEdits(assetId: string): boolean {
+    if (!assetId) return false;
+    return localStorage.getItem(`redbulb-edits-${assetId}`) !== null;
+  }
+
+  /** Delete saved edits for an asset */
+  deleteSavedEdits(assetId: string): void {
+    if (!assetId) return;
+    localStorage.removeItem(`redbulb-edits-${assetId}`);
+  }
+
   getEdits(): EditActions {
-    // No server integration yet - return empty array
-    // In Sprint 2, this will return actual edit actions for WebGPU processing
     return [];
+  }
+
+  /** Serialize all edit state to a plain JSON object for XMP storage */
+  serialize(): Record<string, unknown> {
+    return {
+      version: 1,
+      basic: {
+        exposure: this.exposure,
+        contrast: this.contrast,
+        highlights: this.highlights,
+        shadows: this.shadows,
+        whites: this.whites,
+        blacks: this.blacks,
+        brightness: this.brightness,
+      },
+      color: {
+        saturation: this.saturation,
+        temperature: this.temperature,
+        tint: this.tint,
+        vibrance: this.vibrance,
+      },
+      details: {
+        sharpness: this.sharpness,
+        noiseReduction: this.noiseReduction,
+        clarity: this.clarity,
+        dehaze: this.dehaze,
+      },
+      effects: {
+        vignette: this.vignette,
+        grain: this.grain,
+        fade: this.fade,
+      },
+      curves: JSON.parse(JSON.stringify(this.curves)),
+      curveEndpoints: JSON.parse(JSON.stringify(this.curveEndpoints)),
+      colorWheels: JSON.parse(JSON.stringify(this.colorWheels)),
+      hsl: JSON.parse(JSON.stringify(this.hsl)),
+    };
+  }
+
+  /** Restore all edit state from a serialized JSON object */
+  deserialize(data: Record<string, unknown>): void {
+    if (!data || typeof data !== 'object') return;
+    const d = data as any;
+
+    // Basic
+    if (d.basic) {
+      this.exposure = d.basic.exposure ?? 0;
+      this.contrast = d.basic.contrast ?? 0;
+      this.highlights = d.basic.highlights ?? 0;
+      this.shadows = d.basic.shadows ?? 0;
+      this.whites = d.basic.whites ?? 0;
+      this.blacks = d.basic.blacks ?? 0;
+      this.brightness = d.basic.brightness ?? 0;
+    }
+
+    // Color
+    if (d.color) {
+      this.saturation = d.color.saturation ?? 0;
+      this.temperature = d.color.temperature ?? 0;
+      this.tint = d.color.tint ?? 0;
+      this.vibrance = d.color.vibrance ?? 0;
+    }
+
+    // Details
+    if (d.details) {
+      this.sharpness = d.details.sharpness ?? 0;
+      this.noiseReduction = d.details.noiseReduction ?? 0;
+      this.clarity = d.details.clarity ?? 0;
+      this.dehaze = d.details.dehaze ?? 0;
+    }
+
+    // Effects
+    if (d.effects) {
+      this.vignette = d.effects.vignette ?? 0;
+      this.grain = d.effects.grain ?? 0;
+      this.fade = d.effects.fade ?? 0;
+    }
+
+    // Curves
+    if (d.curves) {
+      this.curves.master = d.curves.master ?? [];
+      this.curves.red = d.curves.red ?? [];
+      this.curves.green = d.curves.green ?? [];
+      this.curves.blue = d.curves.blue ?? [];
+    }
+
+    // Curve endpoints
+    if (d.curveEndpoints) {
+      this.curveEndpoints.master = d.curveEndpoints.master ?? { black: 0, white: 1 };
+      this.curveEndpoints.red = d.curveEndpoints.red ?? { black: 0, white: 1 };
+      this.curveEndpoints.green = d.curveEndpoints.green ?? { black: 0, white: 1 };
+      this.curveEndpoints.blue = d.curveEndpoints.blue ?? { black: 0, white: 1 };
+    }
+
+    // Color wheels
+    if (d.colorWheels) {
+      this.colorWheels.shadows = d.colorWheels.shadows ?? { hue: 0, sat: 0, lum: 0 };
+      this.colorWheels.midtones = d.colorWheels.midtones ?? { hue: 0, sat: 0, lum: 0 };
+      this.colorWheels.highlights = d.colorWheels.highlights ?? { hue: 0, sat: 0, lum: 0 };
+    }
+
+    // HSL
+    if (d.hsl) {
+      for (const channel of Object.keys(this.hsl)) {
+        if (d.hsl[channel]) {
+          this.hsl[channel as keyof typeof this.hsl] = d.hsl[channel];
+        }
+      }
+    }
   }
 }
 

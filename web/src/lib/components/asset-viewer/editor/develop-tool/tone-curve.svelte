@@ -669,14 +669,8 @@
     { id: 'blue', label: 'Blue', color: '#3b82f6' },
   ];
 
-  // Endpoint state: black point (x=0) and white point (x=1) per channel
-  // These are the draggable anchor points — y is adjustable, x is locked
-  let endpoints = $state<Record<Channel, { black: number; white: number }>>({
-    master: { black: 0, white: 1 },
-    red: { black: 0, white: 1 },
-    green: { black: 0, white: 1 },
-    blue: { black: 0, white: 1 },
-  });
+  // Endpoint state stored in developManager for persistence
+  let endpoints = $derived(developManager.curveEndpoints);
 
   // -1 = dragging black point, -2 = dragging white point
   let draggingEndpoint = $state<number | null>(null);

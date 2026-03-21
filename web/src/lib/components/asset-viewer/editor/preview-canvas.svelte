@@ -10,6 +10,67 @@
   let { imageUrl, width, height }: Props = $props();
   let canvas = $state<HTMLCanvasElement | undefined>(undefined);
   let isProcessing = $state(false);
+
+  // Store original (unmodified) image data for eyedropper sampling
+  let originalImageData: ImageData | null = null;
+  let origW = 0;
+  let origH = 0;
+
+  /** Handle eyedropper click on the preview canvas */
+  function handleEyedropperClick(event: MouseEvent) {
+    if (!developManager.eyedropperActive || !canvas || !originalImageData) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = origW / rect.width;
+    const scaleY = origH / rect.height;
+    const px = Math.round((event.clientX - rect.left) * scaleX);
+    const py = Math.round((event.clientY - rect.top) * scaleY);
+
+    if (px < 0 || px >= origW || py < 0 || py >= origH) return;
+
+    // Sample a 5×5 area around the click point for stability
+    let rSum = 0, gSum = 0, bSum = 0, count = 0;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const sx = Math.max(0, Math.min(origW - 1, px + dx));
+        const sy = Math.max(0, Math.min(origH - 1, py + dy));
+        const idx = (sy * origW + sx) * 4;
+        rSum += originalImageData.data[idx];
+        gSum += originalImageData.data[idx + 1];
+        bSum += originalImageData.data[idx + 2];
+        count++;
+      }
+    }
+
+    const r = rSum / count / 255;
+    const g = gSum / count / 255;
+    const b = bSum / count / 255;
+
+    // Convert sampled color to temperature/tint correction
+    // The idea: a neutral gray should have r≈g≈b. The deviation tells us the color cast.
+    // Temperature: blue-yellow axis (b vs r)
+    // Tint: green-magenta axis (g vs avg(r,b))
+    const avg = (r + g + b) / 3;
+    if (avg < 0.01) {
+      // Too dark to sample
+      developManager.eyedropperActive = false;
+      return;
+    }
+
+    // Normalize to unit brightness
+    const rn = r / avg, gn = g / avg, bn = b / avg;
+
+    // Temperature: negative = warm (too blue, add warmth), positive = cool (too yellow, add blue)
+    // Map deviation to -1..1 range
+    const tempCorrection = Math.max(-1, Math.min(1, (bn - rn) * -0.8));
+
+    // Tint: negative = magenta tint (too green, add magenta), positive = green tint
+    const tintCorrection = Math.max(-1, Math.min(1, (gn - (rn + bn) / 2) * -1.2));
+
+    developManager.temperature = Math.round(tempCorrection * 100) / 100;
+    developManager.tint = Math.round(tintCorrection * 100) / 100;
+    developManager.eyedropperActive = false;
+  }
   
   // Debounced render
   let renderTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -58,6 +119,12 @@
       canvas.width = Math.round(img.naturalWidth * scale);
       canvas.height = Math.round(img.naturalHeight * scale);
       
+      // Save original image data for eyedropper
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      origW = canvas.width;
+      origH = canvas.height;
+
       // Step 1: Apply CSS-compatible filters via ctx.filter
       const p = developManager.params;
       ctx.filter = buildFilterString(p);
@@ -257,8 +324,11 @@
 
 <canvas
   bind:this={canvas}
-  class="absolute inset-0 w-full h-full object-contain pointer-events-none"
-  style:display={developManager.hasChanges ? 'block' : 'none'}
+  class="absolute inset-0 w-full h-full object-contain"
+  class:pointer-events-none={!developManager.eyedropperActive}
+  class:cursor-crosshair={developManager.eyedropperActive}
+  style:display={developManager.hasChanges || developManager.eyedropperActive ? 'block' : 'none'}
+  onclick={handleEyedropperClick}
 ></canvas>
 {#if isProcessing}
   <div class="absolute top-2 left-2 text-xs text-white bg-black/50 px-2 py-1 rounded pointer-events-none">

@@ -1,9 +1,35 @@
 <script lang="ts">
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
+  import { editManager } from '$lib/managers/edit/edit-manager.svelte';
   import ToneCurve from './tone-curve.svelte';
   import HslPanel from './hsl-panel.svelte';
   import ColorWheels from './color-wheels.svelte';
   import FloatingPanel from './floating-panel.svelte';
+
+  let saveStatus = $state<'idle' | 'saved' | 'saving'>('idle');
+  let saveTimeout: ReturnType<typeof setTimeout> | undefined;
+
+  function saveEdits() {
+    const asset = editManager.currentAsset;
+    if (!asset) return;
+    saveStatus = 'saving';
+    developManager.saveToStorage(asset.id);
+    saveStatus = 'saved';
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(() => { saveStatus = 'idle'; }, 2000);
+  }
+
+  // Auto-save on changes (debounced)
+  let autoSaveTimeout: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const _changes = developManager.hasChanges;
+    const asset = editManager.currentAsset;
+    if (!asset) return;
+    if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
+    autoSaveTimeout = setTimeout(() => {
+      developManager.saveToStorage(asset.id);
+    }, 3000); // Auto-save after 3 seconds of inactivity
+  });
 
   interface SliderConfig {
     label: string;
@@ -13,7 +39,8 @@
     step: number;
   }
 
-  const basicSliders: SliderConfig[] = [
+  // --- LIGHT section (Lightroom-style grouping) ---
+  const lightSliders: SliderConfig[] = [
     { label: 'Exposure', key: 'exposure', min: -5, max: 5, step: 0.1 },
     { label: 'Contrast', key: 'contrast', min: -1, max: 1, step: 0.01 },
     { label: 'Highlights', key: 'highlights', min: -1, max: 1, step: 0.01 },
@@ -23,28 +50,36 @@
     { label: 'Brightness', key: 'brightness', min: -1, max: 1, step: 0.01 },
   ];
 
+  // --- COLOR section (WB + saturation) ---
   const colorSliders: SliderConfig[] = [
     { label: 'Temperature', key: 'temperature', min: -1, max: 1, step: 0.01 },
+    { label: 'Tint', key: 'tint', min: -1, max: 1, step: 0.01 },
+    { label: 'Vibrance', key: 'vibrance', min: -1, max: 1, step: 0.01 },
     { label: 'Saturation', key: 'saturation', min: -1, max: 1, step: 0.01 },
   ];
 
-  const detailsSliders: SliderConfig[] = [
-    { label: 'Sharpness', key: 'sharpness', min: 0, max: 1, step: 0.01 },
-    { label: 'Noise Reduction', key: 'noiseReduction', min: 0, max: 1, step: 0.01 },
+  // --- PRESENCE section (clarity, dehaze) ---
+  const presenceSliders: SliderConfig[] = [
     { label: 'Clarity', key: 'clarity', min: -1, max: 1, step: 0.01 },
     { label: 'Dehaze', key: 'dehaze', min: -1, max: 1, step: 0.01 },
   ];
 
-  const toneSliders: SliderConfig[] = [
-    { label: 'Vibrance', key: 'vibrance', min: -1, max: 1, step: 0.01 },
-    { label: 'Tint', key: 'tint', min: -1, max: 1, step: 0.01 },
+  // --- DETAIL section ---
+  const detailSliders: SliderConfig[] = [
+    { label: 'Sharpness', key: 'sharpness', min: 0, max: 1, step: 0.01 },
+    { label: 'Noise Reduction', key: 'noiseReduction', min: 0, max: 1, step: 0.01 },
   ];
 
+  // --- EFFECTS section ---
   const effectsSliders: SliderConfig[] = [
     { label: 'Vignette', key: 'vignette', min: 0, max: 1, step: 0.01 },
     { label: 'Grain', key: 'grain', min: 0, max: 1, step: 0.01 },
     { label: 'Fade', key: 'fade', min: 0, max: 1, step: 0.01 },
   ];
+
+  // Legacy aliases for template compatibility
+  const basicSliders = lightSliders;
+  const toneSliders: SliderConfig[] = [];
 
   const disabledSliders = new Set(['vignette', 'grain']);
 
@@ -53,14 +88,14 @@
 
   // Collapse state for each section
   let collapsed = $state<Record<string, boolean>>({
-    basic: false,
-    colorWheels: false,
+    light: false,
     color: false,
-    details: true,
-    tone: true,
-    effects: true,
+    presence: true,
     curves: false,
+    colorWheels: false,
     hsl: true,
+    detail: true,
+    effects: true,
   });
 
   function toggleSection(key: string) {
@@ -100,56 +135,79 @@
   }
 </script>
 
-<div class="develop-panel">
-  <!-- Basic -->
-  <div class="section-card">
-    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('basic')}>
-      <span class="section-title">Basic</span>
-      <div class="section-header-right">
-        <button
-          class="section-reset"
-          class:has-changes={sectionHasChanges(basicSliders)}
-          title="Reset Basic"
-          onclick={(e) => { e.stopPropagation(); resetSection(basicSliders); }}
-        >↺</button>
-        <span class="chevron" class:collapsed={collapsed.basic}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
-          </svg>
-        </span>
+{#snippet sliderGroup(sliders: SliderConfig[], disabled?: Set<string>)}
+  {#each sliders as slider}
+    <div
+      class="slider-row"
+      class:disabled={disabled?.has(slider.key)}
+      onmouseenter={() => hoveredSlider = slider.key}
+      onmouseleave={() => hoveredSlider = null}
+    >
+      <div class="slider-labels">
+        {#if hoveredSlider === slider.key && isModified(slider.key)}
+          <button class="reset-label" onclick={() => resetSlider(slider.key)}>Reset</button>
+        {:else}
+          <label class="slider-label">{slider.label}</label>
+        {/if}
+        <span class="slider-value">{formatValue(developManager[slider.key] as number)}</span>
       </div>
+      <input
+        type="range"
+        min={slider.min}
+        max={slider.max}
+        step={slider.step}
+        bind:value={developManager[slider.key]}
+        disabled={disabled?.has(slider.key)}
+        class="slider"
+      />
     </div>
-    {#if !collapsed.basic}
+  {/each}
+{/snippet}
+
+{#snippet sectionHeader(key: string, title: string, sliders: SliderConfig[], extra?: any)}
+  <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection(key)}>
+    <span class="section-title">{title}</span>
+    <div class="section-header-right">
+      {#if extra === 'eyedropper'}
+        <button
+          class="section-eyedropper"
+          class:active={developManager.eyedropperActive}
+          title="Eyedropper: click photo to set white balance"
+          onclick={(e) => { e.stopPropagation(); developManager.eyedropperActive = !developManager.eyedropperActive; }}
+        >💧</button>
+      {/if}
+      <button
+        class="section-reset"
+        class:has-changes={sectionHasChanges(sliders)}
+        title="Reset {title}"
+        onclick={(e) => { e.stopPropagation(); resetSection(sliders); }}
+      >↺</button>
+      <span class="chevron" class:collapsed={collapsed[key]}>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+          <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </span>
+    </div>
+  </div>
+{/snippet}
+
+<div class="develop-panel">
+  <!-- Save bar -->
+  {#if developManager.hasChanges}
+    <div class="save-bar">
+      <button class="save-btn" onclick={saveEdits}>
+        {#if saveStatus === 'saving'}⏳ Saving...{:else if saveStatus === 'saved'}✅ Saved{:else}💾 Save{/if}
+      </button>
+      <span class="autosave-hint">Auto-saves after 3s</span>
+    </div>
+  {/if}
+
+  <!-- LIGHT -->
+  <div class="section-card">
+    {@render sectionHeader('light', 'Light', lightSliders)}
+    {#if !collapsed.light}
       <div class="section-content">
-        {#each basicSliders as slider}
-          <div
-            class="slider-row"
-            onmouseenter={() => hoveredSlider = slider.key}
-            onmouseleave={() => hoveredSlider = null}
-          >
-            <div class="slider-labels">
-              {#if hoveredSlider === slider.key && isModified(slider.key)}
-                <button
-                  class="reset-label"
-                  onclick={() => resetSlider(slider.key)}
-                >Reset</button>
-              {:else}
-                <label class="slider-label">{slider.label}</label>
-              {/if}
-              <span class="slider-value">
-                {formatValue(developManager[slider.key] as number)}
-              </span>
-            </div>
-            <input
-              type="range"
-              min={slider.min}
-              max={slider.max}
-              step={slider.step}
-              bind:value={developManager[slider.key]}
-              class="slider"
-            />
-          </div>
-        {/each}
+        {@render sliderGroup(lightSliders)}
       </div>
     {/if}
   </div>
@@ -207,15 +265,41 @@
     </FloatingPanel>
   {/if}
 
-  <!-- Color Wheels (3-way grading) -->
+  <!-- COLOR (with eyedropper for WB) -->
+  <div class="section-card">
+    {@render sectionHeader('color', 'Color', colorSliders, 'eyedropper')}
+    {#if !collapsed.color}
+      <div class="section-content">
+        {#if developManager.eyedropperActive}
+          <div class="eyedropper-hint">
+            💧 Click on a neutral area in the photo to set white balance
+            <button class="eyedropper-cancel" onclick={() => developManager.eyedropperActive = false}>Cancel</button>
+          </div>
+        {/if}
+        {@render sliderGroup(colorSliders)}
+      </div>
+    {/if}
+  </div>
+
+  <!-- PRESENCE (clarity, dehaze) -->
+  <div class="section-card">
+    {@render sectionHeader('presence', 'Presence', presenceSliders)}
+    {#if !collapsed.presence}
+      <div class="section-content">
+        {@render sliderGroup(presenceSliders)}
+      </div>
+    {/if}
+  </div>
+
+  <!-- Color Grading (Color Wheels) -->
   <div class="section-card">
     <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('colorWheels')}>
-      <span class="section-title">Color Wheels</span>
+      <span class="section-title">Color Grading</span>
       <div class="section-header-right">
         <button
           class="section-reset"
           class:has-changes={Object.values(developManager.colorWheels).some(w => w.hue !== 0 || w.sat !== 0 || w.lum !== 0)}
-          title="Reset Color Wheels"
+          title="Reset Color Grading"
           onclick={(e) => { e.stopPropagation(); developManager.colorWheels = { shadows: { hue: 0, sat: 0, lum: 0 }, midtones: { hue: 0, sat: 0, lum: 0 }, highlights: { hue: 0, sat: 0, lum: 0 } }; }}
         >↺</button>
         <span class="chevron" class:collapsed={collapsed.colorWheels}>
@@ -228,222 +312,6 @@
     {#if !collapsed.colorWheels}
       <div class="section-content">
         <ColorWheels />
-      </div>
-    {/if}
-  </div>
-
-  <!-- Color -->
-  <div class="section-card">
-    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('color')}>
-      <span class="section-title">Color</span>
-      <div class="section-header-right">
-        <button
-          class="section-reset"
-          class:has-changes={sectionHasChanges(colorSliders)}
-          title="Reset Color"
-          onclick={(e) => { e.stopPropagation(); resetSection(colorSliders); }}
-        >↺</button>
-        <span class="chevron" class:collapsed={collapsed.color}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
-          </svg>
-        </span>
-      </div>
-    </div>
-    {#if !collapsed.color}
-      <div class="section-content">
-        {#each colorSliders as slider}
-          <div
-            class="slider-row"
-            onmouseenter={() => hoveredSlider = slider.key}
-            onmouseleave={() => hoveredSlider = null}
-          >
-            <div class="slider-labels">
-              {#if hoveredSlider === slider.key && isModified(slider.key)}
-                <button
-                  class="reset-label"
-                  onclick={() => resetSlider(slider.key)}
-                >Reset</button>
-              {:else}
-                <label class="slider-label">{slider.label}</label>
-              {/if}
-              <span class="slider-value">
-                {formatValue(developManager[slider.key] as number)}
-              </span>
-            </div>
-            <input
-              type="range"
-              min={slider.min}
-              max={slider.max}
-              step={slider.step}
-              bind:value={developManager[slider.key]}
-              class="slider"
-            />
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </div>
-
-  <!-- Details -->
-  <div class="section-card">
-    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('details')}>
-      <span class="section-title">Details</span>
-      <div class="section-header-right">
-        <button
-          class="section-reset"
-          class:has-changes={sectionHasChanges(detailsSliders)}
-          title="Reset Details"
-          onclick={(e) => { e.stopPropagation(); resetSection(detailsSliders); }}
-        >↺</button>
-        <span class="chevron" class:collapsed={collapsed.details}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
-          </svg>
-        </span>
-      </div>
-    </div>
-    {#if !collapsed.details}
-      <div class="section-content">
-        {#each detailsSliders as slider}
-          <div
-            class="slider-row"
-            class:disabled={disabledSliders.has(slider.key)}
-            onmouseenter={() => hoveredSlider = slider.key}
-            onmouseleave={() => hoveredSlider = null}
-          >
-            <div class="slider-labels">
-              {#if hoveredSlider === slider.key && isModified(slider.key)}
-                <button
-                  class="reset-label"
-                  onclick={() => resetSlider(slider.key)}
-                >Reset</button>
-              {:else}
-                <label class="slider-label">{slider.label}</label>
-              {/if}
-              <span class="slider-value">
-                {formatValue(developManager[slider.key] as number)}
-              </span>
-            </div>
-            <input
-              type="range"
-              min={slider.min}
-              max={slider.max}
-              step={slider.step}
-              bind:value={developManager[slider.key]}
-              disabled={disabledSliders.has(slider.key)}
-              class="slider"
-            />
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </div>
-
-  <!-- Tone -->
-  <div class="section-card">
-    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('tone')}>
-      <span class="section-title">Tone</span>
-      <div class="section-header-right">
-        <button
-          class="section-reset"
-          class:has-changes={sectionHasChanges(toneSliders)}
-          title="Reset Tone"
-          onclick={(e) => { e.stopPropagation(); resetSection(toneSliders); }}
-        >↺</button>
-        <span class="chevron" class:collapsed={collapsed.tone}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
-          </svg>
-        </span>
-      </div>
-    </div>
-    {#if !collapsed.tone}
-      <div class="section-content">
-        {#each toneSliders as slider}
-          <div
-            class="slider-row"
-            onmouseenter={() => hoveredSlider = slider.key}
-            onmouseleave={() => hoveredSlider = null}
-          >
-            <div class="slider-labels">
-              {#if hoveredSlider === slider.key && isModified(slider.key)}
-                <button
-                  class="reset-label"
-                  onclick={() => resetSlider(slider.key)}
-                >Reset</button>
-              {:else}
-                <label class="slider-label">{slider.label}</label>
-              {/if}
-              <span class="slider-value">
-                {formatValue(developManager[slider.key] as number)}
-              </span>
-            </div>
-            <input
-              type="range"
-              min={slider.min}
-              max={slider.max}
-              step={slider.step}
-              bind:value={developManager[slider.key]}
-              class="slider"
-            />
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </div>
-
-  <!-- Effects -->
-  <div class="section-card">
-    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('effects')}>
-      <span class="section-title">Effects</span>
-      <div class="section-header-right">
-        <button
-          class="section-reset"
-          class:has-changes={sectionHasChanges(effectsSliders)}
-          title="Reset Effects"
-          onclick={(e) => { e.stopPropagation(); resetSection(effectsSliders); }}
-        >↺</button>
-        <span class="chevron" class:collapsed={collapsed.effects}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
-          </svg>
-        </span>
-      </div>
-    </div>
-    {#if !collapsed.effects}
-      <div class="section-content">
-        {#each effectsSliders as slider}
-          <div
-            class="slider-row"
-            class:disabled={disabledSliders.has(slider.key)}
-            onmouseenter={() => hoveredSlider = slider.key}
-            onmouseleave={() => hoveredSlider = null}
-          >
-            <div class="slider-labels">
-              {#if hoveredSlider === slider.key && isModified(slider.key)}
-                <button
-                  class="reset-label"
-                  onclick={() => resetSlider(slider.key)}
-                >Reset</button>
-              {:else}
-                <label class="slider-label">{slider.label}</label>
-              {/if}
-              <span class="slider-value">
-                {formatValue(developManager[slider.key] as number)}
-              </span>
-            </div>
-            <input
-              type="range"
-              min={slider.min}
-              max={slider.max}
-              step={slider.step}
-              bind:value={developManager[slider.key]}
-              disabled={disabledSliders.has(slider.key)}
-              class="slider"
-            />
-          </div>
-        {/each}
       </div>
     {/if}
   </div>
@@ -469,6 +337,26 @@
     {#if !collapsed.hsl}
       <div class="section-content">
         <HslPanel />
+      </div>
+    {/if}
+  </div>
+
+  <!-- DETAIL -->
+  <div class="section-card">
+    {@render sectionHeader('detail', 'Detail', detailSliders)}
+    {#if !collapsed.detail}
+      <div class="section-content">
+        {@render sliderGroup(detailSliders)}
+      </div>
+    {/if}
+  </div>
+
+  <!-- EFFECTS -->
+  <div class="section-card">
+    {@render sectionHeader('effects', 'Effects', effectsSliders)}
+    {#if !collapsed.effects}
+      <div class="section-content">
+        {@render sliderGroup(effectsSliders, disabledSliders)}
       </div>
     {/if}
   </div>
@@ -661,6 +549,87 @@
   .popped-label {
     font-style: italic;
     color: #9ca3af !important;
+  }
+
+  /* Eyedropper button */
+  .section-eyedropper {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 0;
+    transition: all 0.15s;
+    filter: grayscale(1) opacity(0.5);
+  }
+
+  .section-eyedropper:hover,
+  .section-eyedropper.active {
+    filter: grayscale(0) opacity(1);
+    background: rgba(59, 130, 246, 0.15);
+  }
+
+  .eyedropper-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    margin-bottom: 8px;
+    font-size: 11px;
+    color: #93c5fd;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 6px;
+  }
+
+  .eyedropper-cancel {
+    margin-left: auto;
+    padding: 2px 8px;
+    font-size: 10px;
+    color: #9ca3af;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .eyedropper-cancel:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.15);
+  }
+
+  /* Save bar */
+  .save-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+  }
+
+  .save-btn {
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(34, 197, 94, 0.2);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .save-btn:hover {
+    background: rgba(34, 197, 94, 0.35);
+  }
+
+  .autosave-hint {
+    font-size: 10px;
+    color: #6b7280;
   }
 
   /* Slider track and thumb — vertically centered */
