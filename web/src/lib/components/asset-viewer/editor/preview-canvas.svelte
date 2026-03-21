@@ -134,24 +134,26 @@
       // Step 2: Per-pixel processing for curves and HSL
       const curves = developManager.curves;
       const hsl = developManager.hsl;
+      const ep = developManager.curveEndpoints;
       const hasCurves = Object.values(curves).some(ch => ch.length > 0);
+      const hasEndpoints = Object.values(ep).some(e => e.black !== 0 || e.white !== 1);
       const hasHSL = Object.values(hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0);
       
-      if (hasCurves || hasHSL) {
+      if (hasCurves || hasEndpoints || hasHSL) {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
         
-        // Build lookup tables for curves
-        const masterLUT = buildCurveLUT(curves.master);
-        const redLUT = buildCurveLUT(curves.red);
-        const greenLUT = buildCurveLUT(curves.green);
-        const blueLUT = buildCurveLUT(curves.blue);
+        // Build lookup tables for curves (including endpoints)
+        const masterLUT = buildCurveLUT(curves.master, ep.master);
+        const redLUT = buildCurveLUT(curves.red, ep.red);
+        const greenLUT = buildCurveLUT(curves.green, ep.green);
+        const blueLUT = buildCurveLUT(curves.blue, ep.blue);
         
         for (let i = 0; i < data.length; i += 4) {
           let r = data[i], g = data[i+1], b = data[i+2];
           
-          // Apply curves
-          if (hasCurves) {
+          // Apply curves (including endpoint adjustments)
+          if (hasCurves || hasEndpoints) {
             r = masterLUT[redLUT[r]];
             g = masterLUT[greenLUT[g]];
             b = masterLUT[blueLUT[b]];
@@ -219,15 +221,15 @@
   }
   
   // Build a 256-entry lookup table from curve control points
-  function buildCurveLUT(points: Array<{x: number, y: number}>): Uint8Array {
+  function buildCurveLUT(points: Array<{x: number, y: number}>, ep: {black: number, white: number} = {black: 0, white: 1}): Uint8Array {
     const lut = new Uint8Array(256);
-    if (points.length === 0) {
+    if (points.length === 0 && ep.black === 0 && ep.white === 1) {
       // Identity
       for (let i = 0; i < 256; i++) lut[i] = i;
       return lut;
     }
     
-    const allPoints = [{ x: 0, y: 0 }, ...points, { x: 1, y: 1 }].sort((a, b) => a.x - b.x);
+    const allPoints = [{ x: 0, y: ep.black }, ...points, { x: 1, y: ep.white }].sort((a, b) => a.x - b.x);
     
     for (let i = 0; i < 256; i++) {
       const t = i / 255;

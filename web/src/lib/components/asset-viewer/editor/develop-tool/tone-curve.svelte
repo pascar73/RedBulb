@@ -126,16 +126,18 @@
     }
   }
 
-  function buildCurveLUT(points: Array<{ x: number; y: number }>): Uint8Array {
+  function buildCurveLUT(points: Array<{ x: number; y: number }>, channel?: Channel): Uint8Array {
     const lut = new Uint8Array(256);
-    if (points.length === 0) {
+    const ep = channel ? endpoints[channel] : { black: 0, white: 1 };
+
+    if (points.length === 0 && ep.black === 0 && ep.white === 1) {
       // Identity — no curve adjustment
       for (let i = 0; i < 256; i++) lut[i] = i;
       return lut;
     }
 
-    // Full control points including endpoints
-    const allPoints = [{ x: 0, y: 0 }, ...points, { x: 1, y: 1 }];
+    // Full control points including draggable endpoints
+    const allPoints = [{ x: 0, y: ep.black }, ...points, { x: 1, y: ep.white }];
 
     for (let i = 0; i < 256; i++) {
       const t = i / 255;
@@ -229,10 +231,10 @@
     if (!rawPixelData || !scopeCanvas) return;
     const data = rawPixelData;
     const curves = developManager.curves;
-    const masterLUT = buildCurveLUT(curves.master);
-    const redLUT = buildCurveLUT(curves.red);
-    const greenLUT = buildCurveLUT(curves.green);
-    const blueLUT = buildCurveLUT(curves.blue);
+    const masterLUT = buildCurveLUT(curves.master, 'master');
+    const redLUT = buildCurveLUT(curves.red, 'red');
+    const greenLUT = buildCurveLUT(curves.green, 'green');
+    const blueLUT = buildCurveLUT(curves.blue, 'blue');
     const W = scopeCanvas.width, H = scopeCanvas.height;
     const ctx = scopeCanvas.getContext('2d')!;
 
@@ -272,10 +274,10 @@
     if (!rawPixelData || !scopeCanvas) return;
     const data = rawPixelData;
     const curves = developManager.curves;
-    const masterLUT = buildCurveLUT(curves.master);
-    const redLUT = buildCurveLUT(curves.red);
-    const greenLUT = buildCurveLUT(curves.green);
-    const blueLUT = buildCurveLUT(curves.blue);
+    const masterLUT = buildCurveLUT(curves.master, 'master');
+    const redLUT = buildCurveLUT(curves.red, 'red');
+    const greenLUT = buildCurveLUT(curves.green, 'green');
+    const blueLUT = buildCurveLUT(curves.blue, 'blue');
 
     const canvasW = scopeCanvas.width;
     const canvasH = scopeCanvas.height;
@@ -357,10 +359,10 @@
     if (!rawPixelData || !scopeCanvas) return;
     const data = rawPixelData;
     const curves = developManager.curves;
-    const masterLUT = buildCurveLUT(curves.master);
-    const redLUT = buildCurveLUT(curves.red);
-    const greenLUT = buildCurveLUT(curves.green);
-    const blueLUT = buildCurveLUT(curves.blue);
+    const masterLUT = buildCurveLUT(curves.master, 'master');
+    const redLUT = buildCurveLUT(curves.red, 'red');
+    const greenLUT = buildCurveLUT(curves.green, 'green');
+    const blueLUT = buildCurveLUT(curves.blue, 'blue');
     const W = scopeCanvas.width, H = scopeCanvas.height;
     const ctx = scopeCanvas.getContext('2d')!;
     const gain = scopeBrightness;
@@ -417,10 +419,10 @@
     if (!rawPixelData || !scopeCanvas) return;
     const data = rawPixelData;
     const curves = developManager.curves;
-    const masterLUT = buildCurveLUT(curves.master);
-    const redLUT = buildCurveLUT(curves.red);
-    const greenLUT = buildCurveLUT(curves.green);
-    const blueLUT = buildCurveLUT(curves.blue);
+    const masterLUT = buildCurveLUT(curves.master, 'master');
+    const redLUT = buildCurveLUT(curves.red, 'red');
+    const greenLUT = buildCurveLUT(curves.green, 'green');
+    const blueLUT = buildCurveLUT(curves.blue, 'blue');
     const W = scopeCanvas.width, H = scopeCanvas.height;
     const ctx = scopeCanvas.getContext('2d')!;
     const gain = scopeBrightness;
@@ -515,10 +517,10 @@
     if (!rawPixelData || !scopeCanvas) return;
     const data = rawPixelData;
     const curves = developManager.curves;
-    const masterLUT = buildCurveLUT(curves.master);
-    const redLUT = buildCurveLUT(curves.red);
-    const greenLUT = buildCurveLUT(curves.green);
-    const blueLUT = buildCurveLUT(curves.blue);
+    const masterLUT = buildCurveLUT(curves.master, 'master');
+    const redLUT = buildCurveLUT(curves.red, 'red');
+    const greenLUT = buildCurveLUT(curves.green, 'green');
+    const blueLUT = buildCurveLUT(curves.blue, 'blue');
     const W = scopeCanvas.width, H = scopeCanvas.height;
     const ctx = scopeCanvas.getContext('2d')!;
 
@@ -621,10 +623,10 @@
     const curves = developManager.curves;
 
     // Build LUTs for each channel
-    const masterLUT = buildCurveLUT(curves.master);
-    const redLUT = buildCurveLUT(curves.red);
-    const greenLUT = buildCurveLUT(curves.green);
-    const blueLUT = buildCurveLUT(curves.blue);
+    const masterLUT = buildCurveLUT(curves.master, 'master');
+    const redLUT = buildCurveLUT(curves.red, 'red');
+    const greenLUT = buildCurveLUT(curves.green, 'green');
+    const blueLUT = buildCurveLUT(curves.blue, 'blue');
 
     const rHist = new Uint32Array(HISTOGRAM_BINS);
     const gHist = new Uint32Array(HISTOGRAM_BINS);
