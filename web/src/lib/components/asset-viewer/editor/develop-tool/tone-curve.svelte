@@ -10,15 +10,16 @@
   let histogramPaths = $state<{ master: string; red: string; green: string; blue: string }>({
     master: '', red: '', green: '', blue: ''
   });
+  let histogramCanvas = $state<HTMLCanvasElement | undefined>(undefined);
   let scopeCanvas = $state<HTMLCanvasElement | undefined>(undefined);
-  type ScopeType = 'parade' | 'waveform' | 'vectorscope' | 'histogram' | 'cie';
-  let activeScopeType = $state<ScopeType>('parade');
+  type ScopeType = 'none' | 'parade' | 'waveform' | 'vectorscope' | 'cie';
+  let activeScopeType = $state<ScopeType>('none');
   const scopeTypes: { id: ScopeType; label: string }[] = [
-    { id: 'parade', label: 'Parade' },
-    { id: 'waveform', label: 'Waveform' },
-    { id: 'vectorscope', label: 'Vectorscope' },
-    { id: 'histogram', label: 'Histogram' },
-    { id: 'cie', label: 'CIE Chromaticity' },
+    { id: 'none', label: 'Histogram Only' },
+    { id: 'parade', label: '+ Parade' },
+    { id: 'waveform', label: '+ Waveform' },
+    { id: 'vectorscope', label: '+ Vectorscope' },
+    { id: 'cie', label: '+ CIE Chromaticity' },
   ];
 
   const MAX_POINTS = 16;
@@ -117,14 +118,63 @@
   }
 
   function renderScope() {
-    if (!rawPixelData || !scopeCanvas) return;
+    if (!rawPixelData) return;
+    // Always render histogram on the histogram canvas (permanent backdrop)
+    renderHistogramBackdrop();
+    // Render selected scope overlay on the scope canvas
+    if (!scopeCanvas) return;
+    const ctx = scopeCanvas.getContext('2d')!;
+    ctx.clearRect(0, 0, scopeCanvas.width, scopeCanvas.height);
     switch (activeScopeType) {
+      case 'none': break; // histogram only — scope canvas stays transparent
       case 'parade': renderParade(); break;
       case 'waveform': renderWaveform(); break;
       case 'vectorscope': renderVectorscope(); break;
-      case 'histogram': renderHistogramScope(); break;
       case 'cie': renderCIE(); break;
     }
+  }
+
+  function renderHistogramBackdrop() {
+    if (!rawPixelData || !histogramCanvas) return;
+    const data = rawPixelData;
+    const curves = developManager.curves;
+    const masterLUT = buildCurveLUT(curves.master);
+    const redLUT = buildCurveLUT(curves.red);
+    const greenLUT = buildCurveLUT(curves.green);
+    const blueLUT = buildCurveLUT(curves.blue);
+    const W = histogramCanvas.width, H = histogramCanvas.height;
+    const ctx = histogramCanvas.getContext('2d')!;
+    ctx.clearRect(0, 0, W, H);
+
+    const rH = new Uint32Array(256), gH = new Uint32Array(256), bH = new Uint32Array(256), lH = new Uint32Array(256);
+    for (let i = 0; i < data.length; i += 4) {
+      const r = masterLUT[redLUT[data[i]]], g = masterLUT[greenLUT[data[i + 1]]], b = masterLUT[blueLUT[data[i + 2]]];
+      rH[r]++; gH[g]++; bH[b]++;
+      lH[Math.round(0.299 * r + 0.587 * g + 0.114 * b)]++;
+    }
+
+    const maxVal = Math.max(...rH, ...gH, ...bH, ...lH) || 1;
+
+    const drawChannel = (hist: Uint32Array, color: string, alpha: number) => {
+      ctx.fillStyle = color;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      for (let i = 0; i < 256; i++) {
+        const x = (i / 255) * W;
+        const h = (hist[i] / maxVal) * H * 0.85;
+        ctx.lineTo(x, H - h);
+      }
+      ctx.lineTo(W, H);
+      ctx.closePath();
+      ctx.fill();
+    };
+
+    drawChannel(lH, '#9ca3af', 0.15);
+    drawChannel(rH, '#ef4444', 0.3);
+    drawChannel(gH, '#22c55e', 0.3);
+    drawChannel(bH, '#3b82f6', 0.3);
+    ctx.globalAlpha = 1;
   }
 
   function renderParade() {
@@ -140,9 +190,7 @@
     const canvasH = scopeCanvas.height;
     const ctx = scopeCanvas.getContext('2d')!;
 
-    // Clear
-    ctx.fillStyle = '#171717';
-    ctx.fillRect(0, 0, canvasW, canvasH);
+
 
     // Draw 10%/90% reference lines
     ctx.strokeStyle = 'rgba(75,85,99,0.4)';
@@ -236,8 +284,6 @@
     const blueLUT = buildCurveLUT(curves.blue);
     const W = scopeCanvas.width, H = scopeCanvas.height;
     const ctx = scopeCanvas.getContext('2d')!;
-    ctx.fillStyle = '#171717';
-    ctx.fillRect(0, 0, W, H);
 
     // Reference lines
     ctx.strokeStyle = 'rgba(75,85,99,0.4)';
@@ -297,8 +343,6 @@
     const blueLUT = buildCurveLUT(curves.blue);
     const W = scopeCanvas.width, H = scopeCanvas.height;
     const ctx = scopeCanvas.getContext('2d')!;
-    ctx.fillStyle = '#171717';
-    ctx.fillRect(0, 0, W, H);
 
     const cx = W / 2, cy = H / 2, radius = Math.min(cx, cy) - 8;
 
@@ -393,57 +437,7 @@
     return [hue2rgb(h + 1/3), hue2rgb(h), hue2rgb(h - 1/3)];
   }
 
-  function renderHistogramScope() {
-    if (!rawPixelData || !scopeCanvas) return;
-    const data = rawPixelData;
-    const curves = developManager.curves;
-    const masterLUT = buildCurveLUT(curves.master);
-    const redLUT = buildCurveLUT(curves.red);
-    const greenLUT = buildCurveLUT(curves.green);
-    const blueLUT = buildCurveLUT(curves.blue);
-    const W = scopeCanvas.width, H = scopeCanvas.height;
-    const ctx = scopeCanvas.getContext('2d')!;
-    ctx.fillStyle = '#171717';
-    ctx.fillRect(0, 0, W, H);
-
-    const rH = new Uint32Array(256), gH = new Uint32Array(256), bH = new Uint32Array(256), lH = new Uint32Array(256);
-    for (let i = 0; i < data.length; i += 4) {
-      const r = masterLUT[redLUT[data[i]]], g = masterLUT[greenLUT[data[i + 1]]], b = masterLUT[blueLUT[data[i + 2]]];
-      rH[r]++; gH[g]++; bH[b]++;
-      lH[Math.round(0.299 * r + 0.587 * g + 0.114 * b)]++;
-    }
-
-    const maxVal = Math.max(...rH, ...gH, ...bH, ...lH) || 1;
-
-    // Draw filled histograms with transparency
-    const drawChannel = (hist: Uint32Array, color: string, alpha: number) => {
-      ctx.fillStyle = color;
-      ctx.globalAlpha = alpha;
-      ctx.beginPath();
-      ctx.moveTo(0, H);
-      for (let i = 0; i < 256; i++) {
-        const x = (i / 255) * W;
-        const h = (hist[i] / maxVal) * H * 0.9;
-        ctx.lineTo(x, H - h);
-      }
-      ctx.lineTo(W, H);
-      ctx.closePath();
-      ctx.fill();
-    };
-
-    drawChannel(lH, '#9ca3af', 0.2);
-    drawChannel(rH, '#ef4444', 0.35);
-    drawChannel(gH, '#22c55e', 0.35);
-    drawChannel(bH, '#3b82f6', 0.35);
-    ctx.globalAlpha = 1;
-
-    // Reference lines
-    ctx.strokeStyle = 'rgba(75,85,99,0.3)';
-    ctx.lineWidth = 0.5;
-    for (const frac of [0.25, 0.5, 0.75]) {
-      ctx.beginPath(); ctx.moveTo(W * frac, 0); ctx.lineTo(W * frac, H); ctx.stroke();
-    }
-  }
+  // renderHistogramScope removed — replaced by renderHistogramBackdrop (always-on)
 
   function renderCIE() {
     if (!rawPixelData || !scopeCanvas) return;
@@ -455,8 +449,6 @@
     const blueLUT = buildCurveLUT(curves.blue);
     const W = scopeCanvas.width, H = scopeCanvas.height;
     const ctx = scopeCanvas.getContext('2d')!;
-    ctx.fillStyle = '#171717';
-    ctx.fillRect(0, 0, W, H);
 
     // Draw CIE 1931 horseshoe outline (simplified)
     const horseshoe = [
@@ -793,25 +785,34 @@
         <option value={scope.id}>{scope.label}</option>
       {/each}
     </select>
-    <span class="text-xs text-gray-500">backdrop</span>
+    <span class="text-xs text-gray-500">scope overlay</span>
   </div>
 
-  <!-- Curve editor with scope backdrop -->
+  <!-- Curve editor with histogram + scope backdrop -->
   <div class="relative">
-    <!-- Scope canvas as background -->
+    <!-- Histogram canvas (always visible, bottom layer) -->
+    <canvas
+      bind:this={histogramCanvas}
+      width={256}
+      height={256}
+      class="absolute inset-0 w-full h-full rounded"
+      style="z-index: 0; pointer-events: none; opacity: 0.6;"
+    ></canvas>
+
+    <!-- Scope overlay canvas (on top of histogram, below curves) -->
     <canvas
       bind:this={scopeCanvas}
       width={256}
       height={256}
-      class="absolute inset-0 w-full h-full rounded opacity-50"
-      style="z-index: 0; pointer-events: none;"
+      class="absolute inset-0 w-full h-full rounded"
+      style="z-index: 1; pointer-events: none; opacity: 0.5;"
     ></canvas>
 
     <svg
       bind:this={svgElement}
       viewBox="0 0 {SVG_SIZE} {SVG_SIZE}"
       class="w-full aspect-square rounded cursor-crosshair select-none"
-      style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.4);"
+      style="touch-action: none; position: relative; z-index: 2; background: rgba(23, 23, 23, 0.3);"
       onclick={handleSvgClick}
     >
       <!-- Grid lines -->
@@ -830,19 +831,7 @@
         />
       {/each}
 
-      <!-- Histogram overlay — all channels visible simultaneously (DaVinci-style) -->
-      {#if histogramPaths.master}
-        <path d={histogramPaths.master} fill="rgba(180,180,180,0.10)" stroke="none" />
-      {/if}
-      {#if histogramPaths.red}
-        <path d={histogramPaths.red} fill="rgba(239,68,68,0.12)" stroke="rgba(239,68,68,0.25)" stroke-width="0.5" />
-      {/if}
-      {#if histogramPaths.green}
-        <path d={histogramPaths.green} fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.25)" stroke-width="0.5" />
-      {/if}
-      {#if histogramPaths.blue}
-        <path d={histogramPaths.blue} fill="rgba(59,130,246,0.12)" stroke="rgba(59,130,246,0.25)" stroke-width="0.5" />
-      {/if}
+      <!-- Histogram rendered on canvas layer below; SVG paths removed to avoid duplication -->
 
       <!-- Identity diagonal reference (faint) -->
       <line
