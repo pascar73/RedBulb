@@ -1008,10 +1008,9 @@
       />
 
       <!-- Draggable endpoint: black point (x=0) — offset slightly inward so it's fully visible -->
-      {@const blackY = (1 - endpoints[activeChannel].black) * SVG_SIZE}
       <circle
         cx={pointRadius * 0.8}
-        cy={blackY}
+        cy={(1 - endpoints[activeChannel].black) * SVG_SIZE}
         r={pointRadius}
         fill={endpoints[activeChannel].black !== 0 ? channels.find(c => c.id === activeChannel)?.color : 'rgba(128,128,128,0.3)'}
         stroke={channels.find(c => c.id === activeChannel)?.color}
@@ -1022,10 +1021,9 @@
         ondblclick={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; endpoints[activeChannel].black = 0; }}
       />
       <!-- Draggable endpoint: white point (x=1) — offset slightly inward -->
-      {@const whiteY = (1 - endpoints[activeChannel].white) * SVG_SIZE}
       <circle
         cx={SVG_SIZE - pointRadius * 0.8}
-        cy={whiteY}
+        cy={(1 - endpoints[activeChannel].white) * SVG_SIZE}
         r={pointRadius}
         fill={endpoints[activeChannel].white !== 1 ? channels.find(c => c.id === activeChannel)?.color : 'rgba(128,128,128,0.3)'}
         stroke={channels.find(c => c.id === activeChannel)?.color}
