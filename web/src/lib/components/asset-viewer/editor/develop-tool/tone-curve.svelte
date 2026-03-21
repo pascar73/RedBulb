@@ -713,11 +713,12 @@
     const points = getPoints();
     if (points.length >= MAX_POINTS) return;
 
-    // Check if click is near an existing point (within POINT_RADIUS)
-    const clickNearPoint = points.some(p => {
+    // Check if click is near an existing point or endpoint
+    const allPts = getAllPointsWithEndpoints();
+    const clickNearPoint = allPts.some(p => {
       const dx = (p.x - x) * SVG_SIZE;
       const dy = (p.y - y) * SVG_SIZE;
-      return Math.sqrt(dx * dx + dy * dy) < POINT_RADIUS * 2;
+      return Math.sqrt(dx * dx + dy * dy) < pointRadius * 2;
     });
     if (clickNearPoint) return;
 
@@ -968,7 +969,7 @@
       bind:this={svgElement}
       viewBox="0 0 {SVG_SIZE} {SVG_SIZE}"
       class="w-full aspect-square rounded cursor-crosshair select-none"
-      style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.3);"
+      style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.3); overflow: visible;"
       onclick={handleSvgClick}
     >
       <!-- Grid lines -->
@@ -1006,33 +1007,33 @@
         fill="none"
       />
 
-      <!-- Draggable endpoint: black point (x=0) -->
+      <!-- Draggable endpoint: black point (x=0) — offset slightly inward so it's fully visible -->
+      {@const blackY = (1 - endpoints[activeChannel].black) * SVG_SIZE}
       <circle
-        cx="0"
-        cy={(1 - endpoints[activeChannel].black) * SVG_SIZE}
+        cx={pointRadius * 0.8}
+        cy={blackY}
         r={pointRadius}
-        fill={endpoints[activeChannel].black !== 0 ? channels.find(c => c.id === activeChannel)?.color : 'none'}
+        fill={endpoints[activeChannel].black !== 0 ? channels.find(c => c.id === activeChannel)?.color : 'rgba(128,128,128,0.3)'}
         stroke={channels.find(c => c.id === activeChannel)?.color}
         stroke-width={strokeScale * 1.5}
-        opacity={endpoints[activeChannel].black !== 0 ? 1 : 0.5}
         class="cursor-ns-resize"
         onmousedown={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -1; }}
         ontouchstart={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -1; }}
-        ondblclick={(e) => { e.stopPropagation(); e.preventDefault(); endpoints[activeChannel].black = 0; }}
+        ondblclick={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; endpoints[activeChannel].black = 0; }}
       />
-      <!-- Draggable endpoint: white point (x=1) -->
+      <!-- Draggable endpoint: white point (x=1) — offset slightly inward -->
+      {@const whiteY = (1 - endpoints[activeChannel].white) * SVG_SIZE}
       <circle
-        cx={SVG_SIZE}
-        cy={(1 - endpoints[activeChannel].white) * SVG_SIZE}
+        cx={SVG_SIZE - pointRadius * 0.8}
+        cy={whiteY}
         r={pointRadius}
-        fill={endpoints[activeChannel].white !== 1 ? channels.find(c => c.id === activeChannel)?.color : 'none'}
+        fill={endpoints[activeChannel].white !== 1 ? channels.find(c => c.id === activeChannel)?.color : 'rgba(128,128,128,0.3)'}
         stroke={channels.find(c => c.id === activeChannel)?.color}
         stroke-width={strokeScale * 1.5}
-        opacity={endpoints[activeChannel].white !== 1 ? 1 : 0.5}
         class="cursor-ns-resize"
         onmousedown={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -2; }}
         ontouchstart={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -2; }}
-        ondblclick={(e) => { e.stopPropagation(); e.preventDefault(); endpoints[activeChannel].white = 1; }}
+        ondblclick={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; endpoints[activeChannel].white = 1; }}
       />
 
       <!-- Control points -->
