@@ -783,13 +783,35 @@
     {/each}
   </div>
 
-  <!-- Curve editor -->
+  <!-- Scope type selector (moved above curves) -->
+  <div class="flex items-center gap-2 mb-1">
+    <select
+      class="text-xs bg-gray-800 text-gray-300 border border-gray-700 rounded px-2 py-1 cursor-pointer focus:outline-none focus:border-gray-500"
+      bind:value={activeScopeType}
+    >
+      {#each scopeTypes as scope}
+        <option value={scope.id}>{scope.label}</option>
+      {/each}
+    </select>
+    <span class="text-xs text-gray-500">backdrop</span>
+  </div>
+
+  <!-- Curve editor with scope backdrop -->
   <div class="relative">
+    <!-- Scope canvas as background -->
+    <canvas
+      bind:this={scopeCanvas}
+      width={256}
+      height={256}
+      class="absolute inset-0 w-full h-full rounded opacity-50"
+      style="z-index: 0; pointer-events: none;"
+    ></canvas>
+
     <svg
       bind:this={svgElement}
       viewBox="0 0 {SVG_SIZE} {SVG_SIZE}"
-      class="w-full aspect-square bg-neutral-900 rounded cursor-crosshair select-none"
-      style="touch-action: none"
+      class="w-full aspect-square rounded cursor-crosshair select-none"
+      style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.4);"
       onclick={handleSvgClick}
     >
       <!-- Grid lines -->
@@ -889,21 +911,5 @@
     Click to add control points • Drag to adjust • Double-click to remove
   </div>
 
-  <!-- Scope viewer (DaVinci-style dropdown) -->
-  <div class="mt-2">
-    <select
-      class="text-xs bg-gray-800 text-gray-300 border border-gray-700 rounded px-2 py-1 mb-1 cursor-pointer focus:outline-none focus:border-gray-500"
-      bind:value={activeScopeType}
-    >
-      {#each scopeTypes as scope}
-        <option value={scope.id}>{scope.label}</option>
-      {/each}
-    </select>
-    <canvas
-      bind:this={scopeCanvas}
-      width={256}
-      height={256}
-      class="w-full aspect-square rounded bg-neutral-900"
-    ></canvas>
-  </div>
+
 </div>
