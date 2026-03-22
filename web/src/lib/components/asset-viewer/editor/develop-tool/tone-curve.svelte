@@ -401,6 +401,7 @@
         clarity: developManager.params.clarity,
         dehaze: developManager.params.dehaze,
         fade: developManager.params.fade,
+        texture: developManager.params.texture,
       },
     }, [mBuf, rBuf, gBuf, bBuf]);
   }

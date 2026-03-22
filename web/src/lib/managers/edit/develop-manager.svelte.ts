@@ -37,8 +37,15 @@ class DevelopManager implements EditToolManager {
   tint = $state(0);
 
   // Effects parameters
+  texture = $state(0);
   vignette = $state(0);
+  vignetteMidpoint = $state(50);
+  vignetteRoundness = $state(0);
+  vignetteFeather = $state(50);
+  vignetteHighlights = $state(0);
   grain = $state(0);
+  grainSize = $state(25);
+  grainRoughness = $state(50);
   fade = $state(0);
 
   // Tone curves - array of control points per channel
@@ -86,8 +93,15 @@ class DevelopManager implements EditToolManager {
       this.dehaze !== 0 ||
       this.vibrance !== 0 ||
       this.tint !== 0 ||
+      this.texture !== 0 ||
       this.vignette !== 0 ||
+      this.vignetteMidpoint !== 50 ||
+      this.vignetteRoundness !== 0 ||
+      this.vignetteFeather !== 50 ||
+      this.vignetteHighlights !== 0 ||
       this.grain !== 0 ||
+      this.grainSize !== 25 ||
+      this.grainRoughness !== 50 ||
       this.fade !== 0
     );
 
@@ -138,8 +152,15 @@ class DevelopManager implements EditToolManager {
     dehaze: this.dehaze,
     vibrance: this.vibrance,
     tint: this.tint,
+    texture: this.texture,
     vignette: this.vignette,
+    vignetteMidpoint: this.vignetteMidpoint,
+    vignetteRoundness: this.vignetteRoundness,
+    vignetteFeather: this.vignetteFeather,
+    vignetteHighlights: this.vignetteHighlights,
     grain: this.grain,
+    grainSize: this.grainSize,
+    grainRoughness: this.grainRoughness,
     fade: this.fade,
     curves: this.curves,
     curveEndpoints: this.curveEndpoints,
@@ -172,8 +193,15 @@ class DevelopManager implements EditToolManager {
     this.dehaze = 0;
     this.vibrance = 0;
     this.tint = 0;
+    this.texture = 0;
     this.vignette = 0;
+    this.vignetteMidpoint = 50;
+    this.vignetteRoundness = 0;
+    this.vignetteFeather = 50;
+    this.vignetteHighlights = 0;
     this.grain = 0;
+    this.grainSize = 25;
+    this.grainRoughness = 50;
     this.fade = 0;
 
     // Reset curves
@@ -270,8 +298,15 @@ class DevelopManager implements EditToolManager {
         dehaze: this.dehaze,
       },
       effects: {
+        texture: this.texture,
         vignette: this.vignette,
+        vignetteMidpoint: this.vignetteMidpoint,
+        vignetteRoundness: this.vignetteRoundness,
+        vignetteFeather: this.vignetteFeather,
+        vignetteHighlights: this.vignetteHighlights,
         grain: this.grain,
+        grainSize: this.grainSize,
+        grainRoughness: this.grainRoughness,
         fade: this.fade,
       },
       curves: JSON.parse(JSON.stringify(this.curves)),
@@ -315,8 +350,15 @@ class DevelopManager implements EditToolManager {
 
     // Effects
     if (d.effects) {
+      this.texture = d.effects.texture ?? 0;
       this.vignette = d.effects.vignette ?? 0;
+      this.vignetteMidpoint = d.effects.vignetteMidpoint ?? 50;
+      this.vignetteRoundness = d.effects.vignetteRoundness ?? 0;
+      this.vignetteFeather = d.effects.vignetteFeather ?? 50;
+      this.vignetteHighlights = d.effects.vignetteHighlights ?? 0;
       this.grain = d.effects.grain ?? 0;
+      this.grainSize = d.effects.grainSize ?? 25;
+      this.grainRoughness = d.effects.grainRoughness ?? 50;
       this.fade = d.effects.fade ?? 0;
     }
 

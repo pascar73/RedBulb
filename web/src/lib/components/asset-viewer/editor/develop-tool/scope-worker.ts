@@ -19,6 +19,7 @@ export interface LightParams {
   clarity: number;
   dehaze: number;
   fade: number;
+  texture: number;
 }
 
 export interface ScopeRequest {
@@ -75,6 +76,7 @@ function applyLightToPixels(src: Uint8ClampedArray, p: LightParams): Uint8Clampe
   saturate *= 1 + p.vibrance * 0.5;
   contrast *= 1 + p.clarity * 0.3;
   contrast *= 1 + p.dehaze * 0.4;
+  if (p.texture > 0) contrast *= 1 + p.texture * 0.15;
   saturate *= 1 + p.dehaze * 0.2;
 
   if (p.fade > 0) {
@@ -110,7 +112,7 @@ function applyLightToPixels(src: Uint8ClampedArray, p: LightParams): Uint8Clampe
 
 function lightKey(p?: LightParams): string {
   if (!p) return '';
-  return `${p.exposure},${p.highlights},${p.shadows},${p.whites},${p.blacks},${p.brightness},${p.contrast},${p.saturation},${p.vibrance},${p.clarity},${p.dehaze},${p.fade}`;
+  return `${p.exposure},${p.highlights},${p.shadows},${p.whites},${p.blacks},${p.brightness},${p.contrast},${p.saturation},${p.vibrance},${p.clarity},${p.dehaze},${p.fade},${p.texture}`;
 }
 
 self.onmessage = (e: MessageEvent<ScopeRequest>) => {

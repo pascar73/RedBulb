@@ -272,6 +272,15 @@
     // Tint
     if (p.tint !== 0) filters += ` hue-rotate(${p.tint * 30}deg)`;
     
+    // Texture (mid-frequency detail — approximated via subtle contrast + sharpness)
+    // Positive = enhance texture, negative = smooth
+    if (p.texture > 0) {
+      contrast *= 1 + p.texture * 0.15;
+    } else if (p.texture < 0) {
+      // Negative texture = smoothing (slight blur + reduced local contrast)
+      filters += ` blur(${Math.abs(p.texture) * 0.3}px)`;
+    }
+
     // Noise reduction
     if (p.noiseReduction > 0) filters += ` blur(${p.noiseReduction * 0.5}px)`;
     
@@ -280,47 +289,63 @@
   
   // Per-pixel processing (curves, HSL, color grading) is now in preview-worker.ts
 
-  // ── Grain overlay ──
+  // ── Grain overlay (static, seeded by image URL) ──
   let grainCanvas = $state<HTMLCanvasElement | undefined>(undefined);
-  let lastGrainFrame = 0;
 
-  function renderGrain(amount: number) {
+  function renderGrain(amount: number, size: number, roughness: number) {
     if (!grainCanvas || !canvas) return;
-    grainCanvas.width = Math.round(canvas.clientWidth / 2); // Half-res for perf
-    grainCanvas.height = Math.round(canvas.clientHeight / 2);
+
+    // Size controls grain particle size: smaller values = finer grain
+    // Map 1-100 to canvas scale factor (1 = full res, 100 = very coarse)
+    const scaleFactor = Math.max(1, Math.round(size / 8));
+    const w = Math.max(16, Math.round(canvas.clientWidth / scaleFactor));
+    const h = Math.max(16, Math.round(canvas.clientHeight / scaleFactor));
+    grainCanvas.width = w;
+    grainCanvas.height = h;
+
     const ctx = grainCanvas.getContext('2d');
     if (!ctx) return;
-    const w = grainCanvas.width, h = grainCanvas.height;
     const imgData = ctx.createImageData(w, h);
     const d = imgData.data;
-    // Fast pseudo-random grain
-    let seed = (lastGrainFrame * 1664525 + 1013904223) & 0xFFFFFFFF;
+
+    // Deterministic seed from imageUrl (static grain for photos)
+    let seed = 0;
+    for (let i = 0; i < imageUrl.length; i++) seed = ((seed << 5) - seed + imageUrl.charCodeAt(i)) | 0;
+    seed = Math.abs(seed) || 42;
+
+    // Roughness controls grain uniformity:
+    // Low roughness = smooth/uniform noise
+    // High roughness = clumpy/contrasty noise (via thresholding)
+    const threshold = roughness / 100; // 0-1
+
     for (let i = 0; i < d.length; i += 4) {
-      seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
-      const noise = ((seed >> 16) & 0xFF);
+      seed = (seed * 1664525 + 1013904223) & 0x7FFFFFFF;
+      let noise = ((seed >> 16) & 0xFF);
+
+      // Apply roughness: high roughness pushes noise toward extremes
+      if (threshold > 0) {
+        const norm = noise / 255;
+        const rough = norm < 0.5
+          ? 0.5 * Math.pow(2 * norm, 1 + threshold * 3)
+          : 1 - 0.5 * Math.pow(2 * (1 - norm), 1 + threshold * 3);
+        noise = Math.round(rough * 255);
+      }
+
       d[i] = noise;
       d[i + 1] = noise;
       d[i + 2] = noise;
-      d[i + 3] = Math.round(amount * 80); // Grain intensity
+      d[i + 3] = Math.round(amount * 100);
     }
     ctx.putImageData(imgData, 0, 0);
-    lastGrainFrame++;
   }
 
-  // Animate grain (subtle flicker like real film)
+  // Re-render grain when params change (static — no animation)
   $effect(() => {
     const amount = developManager.grain;
+    const size = developManager.grainSize;
+    const roughness = developManager.grainRoughness;
     if (amount <= 0) return;
-    let animId: number;
-    let frameCount = 0;
-    const tick = () => {
-      frameCount++;
-      // Update grain every 3 frames (~20fps) for film-like flicker
-      if (frameCount % 3 === 0) renderGrain(amount);
-      animId = requestAnimationFrame(tick);
-    };
-    animId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animId);
+    renderGrain(amount, size, roughness);
   });
 </script>
 
@@ -334,13 +359,24 @@
 ></canvas>
 
 <!-- Vignette overlay (CSS radial-gradient, GPU-accelerated) -->
-{#if developManager.vignette > 0}
+{#if developManager.vignette !== 0}
+  {@const vig = developManager.vignette}
+  {@const mid = developManager.vignetteMidpoint}
+  {@const round = developManager.vignetteRoundness}
+  {@const feather = developManager.vignetteFeather}
+  {@const isDark = vig < 0}
+  {@const amount = Math.abs(vig)}
+  {@const color = isDark ? '0,0,0' : '255,255,255'}
+  {@const innerStop = Math.max(5, mid - feather * 0.4)}
+  {@const outerStop = Math.min(100, mid + feather * 0.5)}
+  {@const rx = 50 + round * 0.3}
+  {@const ry = 50 - round * 0.3}
   <div
     class="absolute inset-0 w-full h-full pointer-events-none rounded"
-    style="background: radial-gradient(ellipse at center,
-      transparent {100 - developManager.vignette * 80}%,
-      rgba(0,0,0,{developManager.vignette * 0.85}) 100%);
-      mix-blend-mode: multiply;"
+    style="background: radial-gradient({rx}% {ry}% at center,
+      transparent {innerStop}%,
+      rgba({color},{amount * 0.85}) {outerStop}%);
+      mix-blend-mode: {isDark ? 'multiply' : 'screen'};"
   ></div>
 {/if}
 

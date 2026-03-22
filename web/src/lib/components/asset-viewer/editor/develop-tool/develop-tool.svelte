@@ -71,11 +71,25 @@
   ];
 
   // --- EFFECTS section ---
-  const effectsSliders: SliderConfig[] = [
-    { label: 'Vignette', key: 'vignette', min: 0, max: 1, step: 0.01 },
-    { label: 'Grain', key: 'grain', min: 0, max: 1, step: 0.01 },
+  // Effects sliders — grouped like Lightroom
+  const effectsTopSliders: SliderConfig[] = [
+    { label: 'Texture', key: 'texture', min: -1, max: 1, step: 0.01 },
     { label: 'Fade', key: 'fade', min: 0, max: 1, step: 0.01 },
   ];
+  const vignetteSliders: SliderConfig[] = [
+    { label: 'Vignette', key: 'vignette', min: -1, max: 1, step: 0.01 },
+    { label: 'Midpoint', key: 'vignetteMidpoint', min: 0, max: 100, step: 1 },
+    { label: 'Roundness', key: 'vignetteRoundness', min: -100, max: 100, step: 1 },
+    { label: 'Feather', key: 'vignetteFeather', min: 0, max: 100, step: 1 },
+    { label: 'Highlights', key: 'vignetteHighlights', min: 0, max: 100, step: 1 },
+  ];
+  const grainSliders: SliderConfig[] = [
+    { label: 'Grain', key: 'grain', min: 0, max: 1, step: 0.01 },
+    { label: 'Size', key: 'grainSize', min: 1, max: 100, step: 1 },
+    { label: 'Roughness', key: 'grainRoughness', min: 0, max: 100, step: 1 },
+  ];
+  // Combined for section reset detection
+  const effectsSliders: SliderConfig[] = [...effectsTopSliders, ...vignetteSliders, ...grainSliders];
 
   // Legacy aliases for template compatibility
   const basicSliders = lightSliders;
@@ -358,7 +372,17 @@
     {@render sectionHeader('effects', 'Effects', effectsSliders)}
     {#if !collapsed.effects}
       <div class="section-content">
-        {@render sliderGroup(effectsSliders, disabledSliders)}
+        {@render sliderGroup(effectsTopSliders, disabledSliders)}
+
+        <div class="sub-section">
+          <div class="sub-section-label">Vignette</div>
+          {@render sliderGroup(vignetteSliders, disabledSliders)}
+        </div>
+
+        <div class="sub-section">
+          <div class="sub-section-label">Grain</div>
+          {@render sliderGroup(grainSliders, disabledSliders)}
+        </div>
       </div>
     {/if}
   </div>
@@ -539,6 +563,21 @@
 
   .section-popout.active {
     color: #a5b4fc;
+  }
+
+  .sub-section {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(75, 85, 99, 0.3);
+  }
+
+  .sub-section-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
   }
 
   .popped-out-placeholder {
