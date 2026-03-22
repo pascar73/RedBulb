@@ -1,41 +1,66 @@
 <script lang="ts">
   import { assetViewerManager } from '$lib/managers/asset-viewer-manager.svelte';
 
+  // Compute the "fit" scale: how much the image is scaled down to fit the container.
+  // fitScale = min(containerW / naturalW, containerH / naturalH)
+  // When fitScale = 1, the image fits perfectly at native res.
+  // actualPixelRatio = cssZoom * fitScale
+  // So: 100% actual = cssZoom of (1 / fitScale)
+
+  const fitScale = $derived.by(() => {
+    const img = assetViewerManager.imgRef;
+    if (!img || !img.naturalWidth || !img.naturalHeight) return 1;
+    const container = img.parentElement?.parentElement;
+    if (!container) return 1;
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    if (!cw || !ch) return 1;
+    return Math.min(cw / img.naturalWidth, ch / img.naturalHeight);
+  });
+
+  // Current actual pixel ratio (what % of native resolution is displayed)
+  const currentZoom = $derived(assetViewerManager.zoom);
+  const actualPercent = $derived(Math.round(currentZoom * fitScale * 100));
+
+  const isFit = $derived(
+    currentZoom <= 1 && assetViewerManager.zoomState.currentPositionX === 0
+  );
+
+  const displayLabel = $derived(isFit ? `Fit (${actualPercent}%)` : `${actualPercent}%`);
+
+  // Preset percentages relative to actual image pixels
   const presets = [
-    { label: 'Fit', value: 0 },   // 0 = fit to container
-    { label: '25%', value: 0.25 },
-    { label: '50%', value: 0.5 },
-    { label: '75%', value: 0.75 },
-    { label: '100%', value: 1 },
-    { label: '200%', value: 2 },
-    { label: '300%', value: 3 },
+    { label: 'Fit', actualPct: 0 },
+    { label: '12.5%', actualPct: 12.5 },
+    { label: '25%', actualPct: 25 },
+    { label: '50%', actualPct: 50 },
+    { label: '100%', actualPct: 100 },
+    { label: '200%', actualPct: 200 },
+    { label: '400%', actualPct: 400 },
   ];
 
   let dropdownOpen = $state(false);
 
-  const currentZoom = $derived(assetViewerManager.zoom);
-  const displayLabel = $derived(
-    currentZoom <= 1 && assetViewerManager.zoomState.currentPositionX === 0
-      ? 'Fit'
-      : `${Math.round(currentZoom * 100)}%`
-  );
-
-  function setZoom(value: number) {
-    if (value === 0) {
-      // Fit: reset to default
+  function setZoom(actualPct: number) {
+    if (actualPct === 0) {
       assetViewerManager.resetZoomState();
     } else {
-      assetViewerManager.animatedZoom(value);
+      // Convert actual percentage to CSS zoom level
+      // actualPct / 100 = cssZoom * fitScale → cssZoom = actualPct / (100 * fitScale)
+      const cssZoom = actualPct / (100 * fitScale);
+      assetViewerManager.animatedZoom(cssZoom);
     }
     dropdownOpen = false;
   }
 
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
-    const step = currentZoom < 1 ? 0.05 : 0.1;
-    const delta = e.deltaY > 0 ? -step : step;
-    const newZoom = Math.max(0.25, Math.min(5, currentZoom + delta));
-    setZoom(newZoom);
+    // Step in actual percentage terms
+    const step = actualPercent < 50 ? 5 : actualPercent < 200 ? 10 : 25;
+    const newPct = e.deltaY > 0
+      ? Math.max(5, actualPercent - step)
+      : Math.min(800, actualPercent + step);
+    setZoom(newPct);
   }
 </script>
 
@@ -43,7 +68,7 @@
   <button
     class="zoom-btn"
     onclick={() => dropdownOpen = !dropdownOpen}
-    title="Zoom level"
+    title="Zoom level (relative to image native resolution)"
   >
     {displayLabel}
     <svg width="8" height="5" viewBox="0 0 8 5" fill="currentColor" class="chevron" class:open={dropdownOpen}>
@@ -57,14 +82,14 @@
       {#each presets as preset}
         <button
           class="dropdown-item"
-          class:active={preset.value === 0 ? currentZoom <= 1 : Math.abs(currentZoom - preset.value) < 0.01}
-          onclick={() => setZoom(preset.value)}
+          class:active={preset.actualPct === 0 ? isFit : Math.abs(actualPercent - preset.actualPct) < 2}
+          onclick={() => setZoom(preset.actualPct)}
         >
           {preset.label}
-          {#if preset.value === 0}
+          {#if preset.actualPct === 0}
             <span class="shortcut">Z</span>
-          {:else if preset.value === 1}
-            <span class="shortcut">⌥⌘Z</span>
+          {:else if preset.actualPct === 100}
+            <span class="shortcut">1:1</span>
           {/if}
         </button>
       {/each}
