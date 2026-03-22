@@ -190,10 +190,10 @@ function renderHistogram(out: Uint8ClampedArray, W: number, H: number,
 
   // Render each channel into the output buffer (additive blending)
   const channels: Array<{ hist: Uint32Array; color: [number, number, number]; alpha: number }> = [
-    { hist: lH, color: [156, 163, 175], alpha: 0.15 * gain },
-    { hist: rH, color: [239, 68, 68], alpha: 0.3 * gain },
-    { hist: gH, color: [34, 197, 94], alpha: 0.3 * gain },
-    { hist: bH, color: [59, 130, 246], alpha: 0.3 * gain },
+    { hist: lH, color: [200, 205, 215], alpha: 0.3 * gain },
+    { hist: rH, color: [255, 70, 70], alpha: 0.55 * gain },
+    { hist: gH, color: [50, 220, 100], alpha: 0.55 * gain },
+    { hist: bH, color: [80, 140, 255], alpha: 0.55 * gain },
   ];
 
   for (const { hist, color, alpha } of channels) {
@@ -215,42 +215,93 @@ function renderHistogram(out: Uint8ClampedArray, W: number, H: number,
   }
 }
 
-// ── Parade ──────────────────────────────────────────────────
+// ── Parade (4-channel: Luma + R + G + B, DaVinci Resolve style) ──
 function renderParade(out: Uint8ClampedArray, W: number, H: number,
   mL: Uint8Array, rL: Uint8Array, gL: Uint8Array, bL: Uint8Array, gain: number) {
   if (!processedPixels || !imgW || !imgH) return;
-  const sW = Math.floor(W / 3), gap = 2;
+  const nSections = 4; // luma, R, G, B
+  const totalGap = (nSections - 1) * 2;
+  const sW = Math.floor((W - totalGap) / nSections), gap = 2;
+  const lB = new Uint16Array(sW * H);
   const rB = new Uint16Array(sW * H), gB = new Uint16Array(sW * H), bB = new Uint16Array(sW * H);
+
+  // Track min/max extent per section (Y coords where signal exists)
+  const extents = { l: { min: H, max: 0 }, r: { min: H, max: 0 }, g: { min: H, max: 0 }, b: { min: H, max: 0 } };
 
   for (let row = 0; row < imgH; row++) {
     for (let col = 0; col < imgW; col++) {
       const i = (row * imgW + col) * 4;
       const [r, g, b] = applyLUT(processedPixels[i], processedPixels[i + 1], processedPixels[i + 2], mL, rL, gL, bL);
+      const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
       const xBin = Math.floor(col / imgW * sW);
-      rB[Math.floor((1 - r / 255) * (H - 1)) * sW + xBin]++;
-      gB[Math.floor((1 - g / 255) * (H - 1)) * sW + xBin]++;
-      bB[Math.floor((1 - b / 255) * (H - 1)) * sW + xBin]++;
+
+      const ly = Math.floor((1 - luma / 255) * (H - 1));
+      const ry = Math.floor((1 - r / 255) * (H - 1));
+      const gy = Math.floor((1 - g / 255) * (H - 1));
+      const by = Math.floor((1 - b / 255) * (H - 1));
+
+      lB[ly * sW + xBin]++;
+      rB[ry * sW + xBin]++;
+      gB[gy * sW + xBin]++;
+      bB[by * sW + xBin]++;
+
+      // Track extents
+      if (ly < extents.l.min) extents.l.min = ly;
+      if (ly > extents.l.max) extents.l.max = ly;
+      if (ry < extents.r.min) extents.r.min = ry;
+      if (ry > extents.r.max) extents.r.max = ry;
+      if (gy < extents.g.min) extents.g.min = gy;
+      if (gy > extents.g.max) extents.g.max = gy;
+      if (by < extents.b.min) extents.b.min = by;
+      if (by > extents.b.max) extents.b.max = by;
     }
   }
 
   let maxVal = 1;
-  for (let i = 0; i < rB.length; i++) maxVal = Math.max(maxVal, rB[i], gB[i], bB[i]);
+  for (let i = 0; i < rB.length; i++) maxVal = Math.max(maxVal, lB[i], rB[i], gB[i], bB[i]);
 
-  const sections: Array<{ buf: Uint16Array; color: [number, number, number]; ox: number }> = [
-    { buf: rB, color: [239, 68, 68], ox: 0 },
-    { buf: gB, color: [34, 197, 94], ox: sW + gap },
-    { buf: bB, color: [59, 130, 246], ox: 2 * (sW + gap) },
+  // Use logarithmic intensity mapping for DaVinci-like brightness
+  const logMax = Math.log(maxVal + 1);
+
+  const sections: Array<{ buf: Uint16Array; color: [number, number, number]; ox: number; ext: { min: number; max: number } }> = [
+    { buf: lB, color: [220, 220, 220], ox: 0, ext: extents.l },
+    { buf: rB, color: [255, 60, 60], ox: sW + gap, ext: extents.r },
+    { buf: gB, color: [40, 220, 80], ox: 2 * (sW + gap), ext: extents.g },
+    { buf: bB, color: [80, 120, 255], ox: 3 * (sW + gap), ext: extents.b },
   ];
-  for (const { buf, color, ox } of sections) {
+
+  for (const { buf, color, ox, ext } of sections) {
+    // Draw extent lines (yellow horizontal markers at min/max)
+    for (const ey of [ext.min, ext.max]) {
+      if (ey >= 0 && ey < H) {
+        for (let x = 0; x < sW; x++) {
+          const px = ox + x;
+          if (px >= W) continue;
+          const idx = (ey * W + px) * 4;
+          // Dashed line: draw every other 4 pixels
+          if (x % 8 < 4) {
+            out[idx] = 200; out[idx + 1] = 180; out[idx + 2] = 40; out[idx + 3] = 100;
+          }
+        }
+      }
+    }
+
+    // Draw channel data
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < sW; x++) {
-        const d = buf[y * sW + x] / maxVal;
+        const d = buf[y * sW + x];
         if (d > 0) {
           const px = ox + x;
           if (px >= W) continue;
           const idx = (y * W + px) * 4;
-          const a = Math.min(255, Math.round(d * 600 * gain));
-          out[idx] = color[0]; out[idx + 1] = color[1]; out[idx + 2] = color[2]; out[idx + 3] = a;
+          // Logarithmic intensity for much brighter display
+          const intensity = Math.min(1.0, (Math.log(d + 1) / logMax) * 3.0 * gain);
+          // Bright core + colored glow
+          const core = intensity * intensity; // squared for hot-center effect
+          out[idx] = Math.min(255, Math.round(color[0] * intensity + 255 * core * 0.3));
+          out[idx + 1] = Math.min(255, Math.round(color[1] * intensity + 255 * core * 0.3));
+          out[idx + 2] = Math.min(255, Math.round(color[2] * intensity + 255 * core * 0.3));
+          out[idx + 3] = Math.min(255, Math.round(intensity * 255));
         }
       }
     }
@@ -277,22 +328,27 @@ function renderWaveform(out: Uint8ClampedArray, W: number, H: number,
   let maxVal = 1;
   for (let i = 0; i < rB.length; i++) maxVal = Math.max(maxVal, rB[i], gB[i], bB[i]);
 
-  const g600 = 600 * gain;
+  const logMax = Math.log(maxVal + 1);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const bi = y * W + x;
-      const rd = rB[bi] / maxVal, gd = gB[bi] / maxVal, bd = bB[bi] / maxVal;
+      const rd = rB[bi], gd = gB[bi], bd = bB[bi];
       if (rd > 0 || gd > 0 || bd > 0) {
         const idx = bi * 4;
+        // Logarithmic intensity for brighter scopes
+        const ri = Math.min(1.0, (Math.log(rd + 1) / logMax) * 3.0 * gain);
+        const gi = Math.min(1.0, (Math.log(gd + 1) / logMax) * 3.0 * gain);
+        const bii = Math.min(1.0, (Math.log(bd + 1) / logMax) * 3.0 * gain);
+        const peak = Math.max(ri, gi, bii);
         if (colorize) {
-          out[idx] = Math.min(255, Math.round(rd * g600));
-          out[idx + 1] = Math.min(255, Math.round(gd * g600));
-          out[idx + 2] = Math.min(255, Math.round(bd * g600));
+          out[idx] = Math.min(255, Math.round(ri * 255 + peak * peak * 80));
+          out[idx + 1] = Math.min(255, Math.round(gi * 255 + peak * peak * 80));
+          out[idx + 2] = Math.min(255, Math.round(bii * 255 + peak * peak * 80));
         } else {
-          const v = Math.min(255, Math.round(Math.max(rd, gd, bd) * g600));
+          const v = Math.min(255, Math.round(peak * 255 + peak * peak * 80));
           out[idx] = v; out[idx + 1] = v; out[idx + 2] = v;
         }
-        out[idx + 3] = Math.min(255, Math.round(Math.max(rd, gd, bd) * g600));
+        out[idx + 3] = Math.min(255, Math.round(peak * 255));
       }
     }
   }
