@@ -96,6 +96,11 @@
     // Deep-read HSL
     const hsl = developManager.hsl;
     const _trackHsl = Object.values(hsl).map(ch => `${ch.h}${ch.s}${ch.l}`).join();
+    // Deep-read color wheels
+    const cw = developManager.colorWheels;
+    void [cw.shadows.hue, cw.shadows.sat, cw.shadows.lum,
+          cw.midtones.hue, cw.midtones.sat, cw.midtones.lum,
+          cw.highlights.hue, cw.highlights.sat, cw.highlights.lum];
     
     // Debounce rendering
     if (renderTimeout) clearTimeout(renderTimeout);
@@ -142,11 +147,13 @@
       const curves = developManager.curves;
       const hsl = developManager.hsl;
       const ep = developManager.curveEndpoints;
+      const cw = developManager.colorWheels;
       const hasCurves = Object.values(curves).some(ch => ch.length > 0);
       const hasEndpoints = Object.values(ep).some(e => e.black.x !== 0 || e.black.y !== 0 || e.white.x !== 1 || e.white.y !== 1);
       const hasHSL = Object.values(hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0);
+      const hasColorGrading = Object.values(cw).some(w => w.hue !== 0 || w.sat !== 0 || w.lum !== 0);
       
-      if (hasCurves || hasEndpoints || hasHSL) {
+      if (hasCurves || hasEndpoints || hasHSL || hasColorGrading) {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
         
@@ -169,6 +176,11 @@
           // Apply HSL adjustments
           if (hasHSL) {
             [r, g, b] = applyHSL(r, g, b, hsl);
+          }
+          
+          // Apply color grading (3-way color wheels: shadows/midtones/highlights)
+          if (hasColorGrading) {
+            [r, g, b] = applyColorGrading(r, g, b, cw);
           }
           
           data[i] = r;
@@ -279,6 +291,61 @@
     return hslToRgb(newH, newS, newL);
   }
   
+  /**
+   * Apply 3-way color grading (shadows/midtones/highlights).
+   * Each wheel has hue (degrees), sat (0-1 intensity), lum (luminance shift).
+   * Zone weights based on pixel luminance: shadows (dark), midtones (mid), highlights (bright).
+   */
+  function applyColorGrading(r: number, g: number, b: number, cw: typeof developManager.colorWheels): [number, number, number] {
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    
+    // Zone weights (smooth transitions using cubic falloff)
+    // Shadows: strongest at lum=0, fades by lum=0.5
+    const shadowW = Math.pow(Math.max(0, 1 - lum * 2), 1.5);
+    // Highlights: strongest at lum=1, fades by lum=0.5
+    const highlightW = Math.pow(Math.max(0, lum * 2 - 1), 1.5);
+    // Midtones: bell curve peaking at lum=0.5
+    const midtoneW = 1 - shadowW - highlightW;
+
+    let rOut = r, gOut = g, bOut = b;
+
+    const zones: Array<{ w: typeof cw.shadows; weight: number }> = [
+      { w: cw.shadows, weight: shadowW },
+      { w: cw.midtones, weight: midtoneW },
+      { w: cw.highlights, weight: highlightW },
+    ];
+
+    for (const { w, weight } of zones) {
+      if (weight <= 0 || (w.hue === 0 && w.sat === 0 && w.lum === 0)) continue;
+
+      // Convert hue to tint color
+      if (w.sat > 0) {
+        const hRad = w.hue * Math.PI / 180;
+        const tintR = Math.cos(hRad) * 0.5 + 0.5;
+        const tintG = Math.cos(hRad - 2.094) * 0.5 + 0.5; // -120°
+        const tintB = Math.cos(hRad + 2.094) * 0.5 + 0.5; // +120°
+        const strength = w.sat * weight;
+        rOut += (tintR * 255 - rOut) * strength * 0.5;
+        gOut += (tintG * 255 - gOut) * strength * 0.5;
+        bOut += (tintB * 255 - bOut) * strength * 0.5;
+      }
+
+      // Luminance shift
+      if (w.lum !== 0) {
+        const lumShift = w.lum * weight * 60;
+        rOut += lumShift;
+        gOut += lumShift;
+        bOut += lumShift;
+      }
+    }
+
+    return [
+      Math.max(0, Math.min(255, Math.round(rOut))),
+      Math.max(0, Math.min(255, Math.round(gOut))),
+      Math.max(0, Math.min(255, Math.round(bOut))),
+    ];
+  }
+
   function hslToRgb(h: number, s: number, l: number): [number, number, number] {
     if (s === 0) {
       const v = Math.round(l * 255);
