@@ -2,6 +2,7 @@
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
   import { editManager } from '$lib/managers/edit/edit-manager.svelte';
   import { buildCurveLUT, buildCurveSVGPath, LUTCache } from './curve-engine';
+  import ScopeWorker from './scope-worker?worker';
 
   type Channel = 'master' | 'red' | 'green' | 'blue';
 
@@ -42,29 +43,55 @@
   let pointRadius = $derived(POINT_RADIUS_PX * (SVG_SIZE / svgRenderedWidth));
   let strokeScale = $derived(SVG_SIZE / svgRenderedWidth);
 
-  // ── Image data cache for scopes ───────────────────────────
-  let rawPixelData: Uint8ClampedArray | null = null;
-  let imgWidth = 0;
-  let imgHeight = 0;
+  // ── Image data for scopes ──────────────────────────────────
+  let hasImageData = false;
 
-  // ── LUT cache (avoid rebuilding on every scope frame) ─────
+  // ── LUT cache ─────────────────────────────────────────────
   const lutCache = new LUTCache();
+
+  // ── Scope Worker — all heavy pixel processing off main thread
+  let scopeWorker: Worker | null = null;
+  let workerBusy = false;
+  let pendingRender = false;
+
+  function initWorker() {
+    if (scopeWorker) return;
+    try {
+      scopeWorker = new ScopeWorker();
+      scopeWorker.onmessage = (e) => {
+        workerBusy = false;
+        if (e.data.type === 'rendered' && scopeCanvas) {
+          const ctx = scopeCanvas.getContext('2d')!;
+          const img = new ImageData(
+            new Uint8ClampedArray(e.data.imageData),
+            e.data.width,
+            e.data.height,
+          );
+          ctx.clearRect(0, 0, scopeCanvas.width, scopeCanvas.height);
+          ctx.putImageData(img, 0, 0);
+          drawGraticule(ctx);
+        }
+        // If a render was requested while busy, do it now
+        if (pendingRender) {
+          pendingRender = false;
+          requestScopeUpdate();
+        }
+      };
+    } catch {
+      // Workers not supported — fall back silently (scopes won't render)
+      scopeWorker = null;
+    }
+  }
 
   // ── rAF scope throttle ────────────────────────────────────
   let scopeRafId: number | null = null;
-  let scopeDirty = false;
 
   function requestScopeUpdate() {
-    scopeDirty = true;
-    if (scopeRafId === null) {
-      scopeRafId = requestAnimationFrame(() => {
-        scopeRafId = null;
-        if (scopeDirty) {
-          scopeDirty = false;
-          renderScope();
-        }
-      });
-    }
+    if (scopeRafId !== null) return;
+    scopeRafId = requestAnimationFrame(() => {
+      scopeRafId = null;
+      renderScope();
+    });
   }
 
   // ── Channels config ───────────────────────────────────────
@@ -134,7 +161,7 @@
     void refLow;
     void refHigh;
     void colorizeWaveform;
-    if (rawPixelData) requestScopeUpdate();
+    if (hasImageData) requestScopeUpdate();
   });
 
   // Load image data once when asset changes
@@ -160,7 +187,7 @@
       ep.green.black, ep.green.white,
       ep.blue.black, ep.blue.white,
     ];
-    if (rawPixelData) requestScopeUpdate();
+    if (hasImageData) requestScopeUpdate();
   });
 
   // ══════════════════════════════════════════════════════════
@@ -169,6 +196,7 @@
 
   async function loadImageData(assetId: string) {
     try {
+      initWorker();
       const img = new Image();
       img.crossOrigin = 'anonymous';
       await new Promise<void>((resolve, reject) => {
@@ -182,9 +210,20 @@
       canvas.height = Math.round(img.naturalHeight * scale);
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      rawPixelData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-      imgWidth = canvas.width;
-      imgHeight = canvas.height;
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      // Transfer pixel data to worker (zero-copy via transferable)
+      if (scopeWorker) {
+        const pixelsCopy = imageData.data.slice();
+        scopeWorker.postMessage({
+          type: 'init',
+          pixels: pixelsCopy.buffer,
+          imgWidth: canvas.width,
+          imgHeight: canvas.height,
+        }, [pixelsCopy.buffer]);
+      }
+
+      hasImageData = true;
       requestScopeUpdate();
     } catch {
       // Silently fail — scopes are optional
@@ -279,320 +318,45 @@
   function handleTouchEnd() { draggingIndex = null; draggingEndpoint = null; pointClicked = false; }
 
   // ══════════════════════════════════════════════════════════
-  // Scope rendering (rAF-throttled)
+  // Scope rendering — dispatched to Web Worker (off main thread)
+  // Only graticule overlay runs on main thread (lightweight)
   // ══════════════════════════════════════════════════════════
 
-  function getLUTs() {
+  function renderScope() {
+    if (!hasImageData || !scopeWorker || !scopeCanvas) return;
+
+    // If worker is still processing, queue the update
+    if (workerBusy) { pendingRender = true; return; }
+
     const c = developManager.curves;
     const ep = developManager.curveEndpoints;
-    return {
-      master: lutCache.get(c.master, ep.master),
-      red: lutCache.get(c.red, ep.red),
-      green: lutCache.get(c.green, ep.green),
-      blue: lutCache.get(c.blue, ep.blue),
-    };
+    const masterLUT = lutCache.get(c.master, ep.master);
+    const redLUT = lutCache.get(c.red, ep.red);
+    const greenLUT = lutCache.get(c.green, ep.green);
+    const blueLUT = lutCache.get(c.blue, ep.blue);
+
+    // Copy LUT buffers (they're small — 256 bytes each)
+    const mBuf = masterLUT.slice().buffer;
+    const rBuf = redLUT.slice().buffer;
+    const gBuf = greenLUT.slice().buffer;
+    const bBuf = blueLUT.slice().buffer;
+
+    workerBusy = true;
+    scopeWorker.postMessage({
+      type: 'render',
+      scopeType: activeScopeType,
+      masterLUT: mBuf,
+      redLUT: rBuf,
+      greenLUT: gBuf,
+      blueLUT: bBuf,
+      canvasW: scopeCanvas.width,
+      canvasH: scopeCanvas.height,
+      brightness: scopeBrightness,
+      colorize: colorizeWaveform,
+    }, [mBuf, rBuf, gBuf, bBuf]);
   }
 
-  function renderScope() {
-    if (!rawPixelData || !scopeCanvas) return;
-    const ctx = scopeCanvas.getContext('2d')!;
-    ctx.clearRect(0, 0, scopeCanvas.width, scopeCanvas.height);
-    switch (activeScopeType) {
-      case 'histogram': renderHistogram(ctx); break;
-      case 'parade': renderParade(ctx); break;
-      case 'waveform': renderWaveform(ctx); break;
-      case 'vectorscope': renderVectorscope(ctx); break;
-      case 'cie': renderCIE(ctx); break;
-    }
-    drawGraticule(ctx);
-  }
-
-  function applyLUTs(r: number, g: number, b: number, luts: ReturnType<typeof getLUTs>): [number, number, number] {
-    return [luts.master[luts.red[r]], luts.master[luts.green[g]], luts.master[luts.blue[b]]];
-  }
-
-  // ── Histogram ─────────────────────────────────────────────
-  function renderHistogram(ctx: CanvasRenderingContext2D) {
-    if (!rawPixelData) return;
-    const data = rawPixelData;
-    const luts = getLUTs();
-    const W = scopeCanvas!.width, H = scopeCanvas!.height;
-    const rH = new Uint32Array(256), gH = new Uint32Array(256), bH = new Uint32Array(256), lH = new Uint32Array(256);
-
-    for (let i = 0; i < data.length; i += 4) {
-      const [r, g, b] = applyLUTs(data[i], data[i + 1], data[i + 2], luts);
-      rH[r]++; gH[g]++; bH[b]++;
-      lH[Math.round(0.299 * r + 0.587 * g + 0.114 * b)]++;
-    }
-
-    const maxVal = Math.max(...rH, ...gH, ...bH, ...lH) || 1;
-    const gain = scopeBrightness;
-    const drawCh = (hist: Uint32Array, color: string, alpha: number) => {
-      ctx.fillStyle = color;
-      ctx.globalAlpha = alpha;
-      ctx.beginPath(); ctx.moveTo(0, H);
-      for (let i = 0; i < 256; i++) ctx.lineTo((i / 255) * W, H - (hist[i] / maxVal) * H * 0.85);
-      ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
-    };
-    drawCh(lH, '#9ca3af', 0.15 * gain);
-    drawCh(rH, '#ef4444', 0.3 * gain);
-    drawCh(gH, '#22c55e', 0.3 * gain);
-    drawCh(bH, '#3b82f6', 0.3 * gain);
-    ctx.globalAlpha = 1;
-  }
-
-  // ── Parade ────────────────────────────────────────────────
-  function renderParade(ctx: CanvasRenderingContext2D) {
-    if (!rawPixelData || !imgWidth || !imgHeight) return;
-    const data = rawPixelData;
-    const luts = getLUTs();
-    const W = scopeCanvas!.width, H = scopeCanvas!.height;
-    const gain = scopeBrightness;
-    const sW = Math.floor(W / 3), gap = 2;
-    const rB = new Uint16Array(sW * H), gB = new Uint16Array(sW * H), bB = new Uint16Array(sW * H);
-
-    for (let row = 0; row < imgHeight; row++) {
-      for (let col = 0; col < imgWidth; col++) {
-        const i = (row * imgWidth + col) * 4;
-        const [r, g, b] = applyLUTs(data[i], data[i + 1], data[i + 2], luts);
-        const xBin = Math.floor(col / imgWidth * sW);
-        rB[Math.floor((1 - r / 255) * (H - 1)) * sW + xBin]++;
-        gB[Math.floor((1 - g / 255) * (H - 1)) * sW + xBin]++;
-        bB[Math.floor((1 - b / 255) * (H - 1)) * sW + xBin]++;
-      }
-    }
-
-    let maxVal = 1;
-    for (let i = 0; i < rB.length; i++) maxVal = Math.max(maxVal, rB[i], gB[i], bB[i]);
-
-    for (const { buf, color, ox } of [
-      { buf: rB, color: [239, 68, 68], ox: 0 },
-      { buf: gB, color: [34, 197, 94], ox: sW + gap },
-      { buf: bB, color: [59, 130, 246], ox: 2 * (sW + gap) },
-    ]) {
-      const img = ctx.createImageData(sW, H);
-      const px = img.data;
-      for (let y = 0; y < H; y++) {
-        for (let x = 0; x < sW; x++) {
-          const d = buf[y * sW + x] / maxVal;
-          if (d > 0) {
-            const idx = (y * sW + x) * 4;
-            const a = Math.min(255, Math.round(d * 600 * gain));
-            px[idx] = color[0]; px[idx + 1] = color[1]; px[idx + 2] = color[2]; px[idx + 3] = a;
-          }
-        }
-      }
-      ctx.putImageData(img, ox, 0);
-    }
-
-    ctx.font = '10px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillText('R', 4, 12);
-    ctx.fillText('G', sW + gap + 4, 12);
-    ctx.fillText('B', 2 * (sW + gap) + 4, 12);
-  }
-
-  // ── Waveform ──────────────────────────────────────────────
-  function renderWaveform(ctx: CanvasRenderingContext2D) {
-    if (!rawPixelData || !imgWidth || !imgHeight) return;
-    const data = rawPixelData;
-    const luts = getLUTs();
-    const W = scopeCanvas!.width, H = scopeCanvas!.height;
-    const gain = scopeBrightness;
-    const rB = new Uint16Array(W * H), gB = new Uint16Array(W * H), bB = new Uint16Array(W * H);
-
-    for (let row = 0; row < imgHeight; row++) {
-      for (let col = 0; col < imgWidth; col++) {
-        const i = (row * imgWidth + col) * 4;
-        const [r, g, b] = applyLUTs(data[i], data[i + 1], data[i + 2], luts);
-        const xBin = Math.floor(col / imgWidth * W);
-        rB[Math.floor((1 - r / 255) * (H - 1)) * W + xBin]++;
-        gB[Math.floor((1 - g / 255) * (H - 1)) * W + xBin]++;
-        bB[Math.floor((1 - b / 255) * (H - 1)) * W + xBin]++;
-      }
-    }
-
-    let maxVal = 1;
-    for (let i = 0; i < rB.length; i++) maxVal = Math.max(maxVal, rB[i], gB[i], bB[i]);
-
-    const img = ctx.createImageData(W, H);
-    const px = img.data;
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const idx = (y * W + x) * 4, bi = y * W + x;
-        const rd = rB[bi] / maxVal, gd = gB[bi] / maxVal, bd = bB[bi] / maxVal;
-        if (rd > 0 || gd > 0 || bd > 0) {
-          const g600 = 600 * gain;
-          if (colorizeWaveform) {
-            px[idx] = Math.min(255, Math.round(rd * g600));
-            px[idx + 1] = Math.min(255, Math.round(gd * g600));
-            px[idx + 2] = Math.min(255, Math.round(bd * g600));
-          } else {
-            const v = Math.min(255, Math.round(Math.max(rd, gd, bd) * g600));
-            px[idx] = v; px[idx + 1] = v; px[idx + 2] = v;
-          }
-          px[idx + 3] = Math.min(255, Math.round(Math.max(rd, gd, bd) * g600));
-        }
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-  }
-
-  // ── Vectorscope ───────────────────────────────────────────
-  function renderVectorscope(ctx: CanvasRenderingContext2D) {
-    if (!rawPixelData || !imgWidth || !imgHeight) return;
-    const data = rawPixelData;
-    const luts = getLUTs();
-    const W = scopeCanvas!.width, H = scopeCanvas!.height;
-    const gain = scopeBrightness;
-    const cx = W / 2, cy = H / 2, radius = Math.min(cx, cy) - 8;
-
-    // SMPTE target markers
-    const targets = [
-      { label: 'R', angle: 103.5, color: '#ef4444' },
-      { label: 'YL', angle: 167, color: '#eab308' },
-      { label: 'G', angle: 241, color: '#22c55e' },
-      { label: 'CY', angle: 283.5, color: '#06b6d4' },
-      { label: 'B', angle: 347, color: '#3b82f6' },
-      { label: 'MG', angle: 61, color: '#d946ef' },
-    ];
-    ctx.font = '8px sans-serif';
-    for (const t of targets) {
-      const rad = t.angle * Math.PI / 180;
-      const tx = cx + Math.cos(rad) * radius * 0.75;
-      const ty = cy - Math.sin(rad) * radius * 0.75;
-      ctx.fillStyle = t.color;
-      ctx.beginPath(); ctx.arc(tx, ty, 3, 0, Math.PI * 2); ctx.fill();
-      ctx.fillText(t.label, tx + 5, ty + 3);
-    }
-
-    const buf = new Uint16Array(W * H);
-    for (let pix = 0; pix < imgWidth * imgHeight; pix++) {
-      const i = pix * 4;
-      const [r, g, b] = applyLUTs(data[i], data[i + 1], data[i + 2], luts);
-      const rf = r / 255, gf = g / 255, bf = b / 255;
-      const cb = -0.169 * rf - 0.331 * gf + 0.5 * bf;
-      const cr = 0.5 * rf - 0.419 * gf - 0.081 * bf;
-      const px = Math.round(cx + cr * radius * 2);
-      const py = Math.round(cy - cb * radius * 2);
-      if (px >= 0 && px < W && py >= 0 && py < H) buf[py * W + px]++;
-    }
-
-    let maxVal = 1;
-    for (let i = 0; i < buf.length; i++) maxVal = Math.max(maxVal, buf[i]);
-
-    const img = ctx.createImageData(W, H);
-    const px = img.data;
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const d = buf[y * W + x] / maxVal;
-        if (d > 0) {
-          const idx = (y * W + x) * 4;
-          const normX = (x - cx) / radius, normY = (cy - y) / radius;
-          const hue = Math.atan2(normY, normX) / (Math.PI * 2) + 0.5;
-          const [hr, hg, hb] = hueToRgb(hue);
-          const intensity = Math.min(1, d * 8 * gain);
-          px[idx] = Math.round(hr * 255 * intensity);
-          px[idx + 1] = Math.round(hg * 255 * intensity);
-          px[idx + 2] = Math.round(hb * 255 * intensity);
-          px[idx + 3] = Math.min(255, Math.round(d * 800 * gain));
-        }
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-  }
-
-  function hueToRgb(h: number): [number, number, number] {
-    const s = 0.8, l = 0.6;
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    const f = (t: number) => {
-      if (t < 0) t += 1; if (t > 1) t -= 1;
-      if (t < 1/6) return p + (q - p) * 6 * t;
-      if (t < 1/2) return q;
-      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-      return p;
-    };
-    return [f(h + 1/3), f(h), f(h - 1/3)];
-  }
-
-  // ── CIE Chromaticity ──────────────────────────────────────
-  function renderCIE(ctx: CanvasRenderingContext2D) {
-    if (!rawPixelData || !imgWidth || !imgHeight) return;
-    const data = rawPixelData;
-    const luts = getLUTs();
-    const W = scopeCanvas!.width, H = scopeCanvas!.height;
-
-    const horseshoe = [
-      [0.175, 0.005], [0.174, 0.015], [0.174, 0.045], [0.171, 0.090],
-      [0.160, 0.150], [0.144, 0.214], [0.120, 0.297], [0.091, 0.378],
-      [0.068, 0.431], [0.045, 0.462], [0.023, 0.482], [0.008, 0.490],
-      [0.004, 0.514], [0.012, 0.546], [0.035, 0.580], [0.073, 0.616],
-      [0.117, 0.647], [0.170, 0.673], [0.230, 0.694], [0.295, 0.710],
-      [0.355, 0.714], [0.420, 0.710], [0.480, 0.695], [0.535, 0.667],
-      [0.585, 0.630], [0.625, 0.590], [0.655, 0.550], [0.680, 0.510],
-      [0.700, 0.465], [0.715, 0.420], [0.725, 0.370], [0.734, 0.320],
-      [0.735, 0.265], [0.735, 0.265],
-    ];
-    const sx = (x: number) => 10 + (x / 0.8) * (W - 20);
-    const sy = (y: number) => H - 10 - (y / 0.9) * (H - 20);
-
-    ctx.strokeStyle = 'rgba(100,100,100,0.5)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(sx(horseshoe[0][0]), sy(horseshoe[0][1]));
-    for (const [x, y] of horseshoe) ctx.lineTo(sx(x), sy(y));
-    ctx.closePath(); ctx.stroke();
-
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.beginPath(); ctx.arc(sx(0.3127), sy(0.3290), 3, 0, Math.PI * 2); ctx.fill();
-    ctx.font = '8px sans-serif'; ctx.fillText('D65', sx(0.3127) + 5, sy(0.3290) - 5);
-
-    const buf = new Uint16Array(W * H);
-    for (let pix = 0; pix < imgWidth * imgHeight; pix += 3) {
-      const i = pix * 4;
-      if (i + 2 >= data.length) break;
-      const [r, g, b] = applyLUTs(data[i], data[i + 1], data[i + 2], luts);
-      const rf = r / 255, gf = g / 255, bf = b / 255;
-      const rl = rf <= 0.04045 ? rf / 12.92 : Math.pow((rf + 0.055) / 1.055, 2.4);
-      const gl = gf <= 0.04045 ? gf / 12.92 : Math.pow((gf + 0.055) / 1.055, 2.4);
-      const bl = bf <= 0.04045 ? bf / 12.92 : Math.pow((bf + 0.055) / 1.055, 2.4);
-      const X = 0.4124 * rl + 0.3576 * gl + 0.1805 * bl;
-      const Y = 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
-      const Z = 0.0193 * rl + 0.1192 * gl + 0.9505 * bl;
-      const sum = X + Y + Z;
-      if (sum < 0.001) continue;
-      const cxv = X / sum, cyv = Y / sum;
-      const px = Math.round(sx(cxv)), py = Math.round(sy(cyv));
-      if (px >= 0 && px < W && py >= 0 && py < H) buf[py * W + px]++;
-    }
-
-    let maxVal = 1;
-    for (let i = 0; i < buf.length; i++) maxVal = Math.max(maxVal, buf[i]);
-    const img = ctx.createImageData(W, H);
-    const px = img.data;
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const d = buf[y * W + x] / maxVal;
-        if (d > 0) {
-          const idx = (y * W + x) * 4;
-          const intensity = Math.min(1, d * 10);
-          px[idx] = Math.round(200 * intensity);
-          px[idx + 1] = Math.round(220 * intensity);
-          px[idx + 2] = Math.round(255 * intensity);
-          px[idx + 3] = Math.min(255, Math.round(d * 1000));
-        }
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-
-    // Redraw outline on top
-    ctx.strokeStyle = 'rgba(100,100,100,0.4)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(sx(horseshoe[0][0]), sy(horseshoe[0][1]));
-    for (const [hx, hy] of horseshoe) ctx.lineTo(sx(hx), sy(hy));
-    ctx.closePath(); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.beginPath(); ctx.arc(sx(0.3127), sy(0.3290), 2, 0, Math.PI * 2); ctx.fill();
-  }
-
-  // ── Graticule overlay ─────────────────────────────────────
+  // ── Graticule overlay (lightweight, stays on main thread) ──
   function drawGraticule(ctx: CanvasRenderingContext2D) {
     if (!scopeCanvas) return;
     const W = scopeCanvas.width, H = scopeCanvas.height;
@@ -712,13 +476,13 @@
   <div class="relative">
     <canvas bind:this={scopeCanvas} width={256} height={256}
       class="absolute inset-0 w-full h-full rounded"
-      style="z-index: 0; pointer-events: none; opacity: 0.6;" />
+      style="z-index: 0; pointer-events: none; opacity: 0.6; will-change: contents; contain: strict;" />
 
     <svg bind:this={svgElement}
       viewBox="0 0 {SVG_SIZE} {SVG_SIZE}"
       class="w-full aspect-square rounded cursor-crosshair select-none"
       role="img" aria-label="Tone curve editor"
-      style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.3); overflow: visible;"
+      style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.3); overflow: visible; will-change: contents; contain: layout style;"
       onclick={handleSvgClick}
     >
       <!-- Grid -->

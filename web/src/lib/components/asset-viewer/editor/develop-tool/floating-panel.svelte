@@ -200,6 +200,10 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
     overflow: hidden;
     touch-action: none;
+    /* GPU compositing — own layer for drag/resize/opacity without repainting siblings */
+    will-change: transform, opacity;
+    transform: translateZ(0);
+    contain: layout style;
   }
 
   .title-bar {
