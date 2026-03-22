@@ -391,11 +391,11 @@
 </script>
 
 <!-- Wrapper follows the same zoom transform as the <img> element -->
-<div class="absolute inset-0 w-full h-full" style={zoomTransform}>
+<div class="absolute inset-0 w-full h-full pointer-events-none" style={zoomTransform}>
   <canvas
     bind:this={canvas}
     class="absolute inset-0 w-full h-full object-contain"
-    class:pointer-events-none={!developManager.eyedropperActive}
+    class:pointer-events-auto={developManager.eyedropperActive}
     class:cursor-crosshair={developManager.eyedropperActive}
     style:display={developManager.hasChanges || developManager.eyedropperActive ? 'block' : 'none'}
     onclick={handleEyedropperClick}

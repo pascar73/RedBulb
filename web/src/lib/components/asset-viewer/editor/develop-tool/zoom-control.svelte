@@ -48,7 +48,34 @@
       // Convert actual percentage to CSS zoom level
       // actualPct / 100 = cssZoom * fitScale → cssZoom = actualPct / (100 * fitScale)
       const cssZoom = actualPct / (100 * fitScale);
-      assetViewerManager.animatedZoom(cssZoom);
+
+      // Center the view when zooming from the dropdown
+      // The zoom library uses transform-origin 0,0, so we need to calculate
+      // position that centers the image in the viewport
+      const img = assetViewerManager.imgRef;
+      if (img) {
+        const container = img.parentElement?.parentElement;
+        if (container) {
+          const cw = container.clientWidth;
+          const ch = container.clientHeight;
+          // Image fitted dimensions
+          const fw = img.naturalWidth * fitScale;
+          const fh = img.naturalHeight * fitScale;
+          // Center offset: position the zoomed content so the center of the image
+          // aligns with the center of the container
+          const posX = (cw - fw * cssZoom) / 2;
+          const posY = (ch - fh * cssZoom) / 2;
+          assetViewerManager.zoomState = {
+            currentZoom: cssZoom,
+            currentPositionX: posX,
+            currentPositionY: posY,
+          };
+        } else {
+          assetViewerManager.animatedZoom(cssZoom);
+        }
+      } else {
+        assetViewerManager.animatedZoom(cssZoom);
+      }
     }
     dropdownOpen = false;
   }
