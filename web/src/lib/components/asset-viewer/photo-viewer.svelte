@@ -318,7 +318,7 @@
   ondblclick={onZoom}
   onmousemove={handleImageMouseMove}
   onmouseleave={handleImageMouseLeave}
-  use:zoomImageAction={{ disabled: isFaceEditMode.value || ocrManager.showOverlay }}
+  use:zoomImageAction={{ disabled: isFaceEditMode.value || ocrManager.showOverlay || isInDevelopMode }}
   {...useSwipe((event) => onSwipe?.(event))}
 >
     <AdaptiveImage

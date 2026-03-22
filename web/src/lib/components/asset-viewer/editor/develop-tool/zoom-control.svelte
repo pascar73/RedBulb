@@ -32,9 +32,10 @@
 
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    const step = currentZoom < 1 ? 0.05 : 0.1;
+    const delta = e.deltaY > 0 ? -step : step;
     const newZoom = Math.max(0.25, Math.min(5, currentZoom + delta));
-    assetViewerManager.zoomState = { ...assetViewerManager.zoomState, currentZoom: newZoom };
+    setZoom(newZoom);
   }
 </script>
 

@@ -289,17 +289,16 @@
   
   // Per-pixel processing (curves, HSL, color grading) is now in preview-worker.ts
 
-  // ── Grain overlay (static, seeded by image URL) ──
+  // ── Grain overlay (static film grain, seeded by image URL) ──
   let grainCanvas = $state<HTMLCanvasElement | undefined>(undefined);
 
   function renderGrain(amount: number, size: number, roughness: number) {
     if (!grainCanvas || !canvas) return;
 
-    // Size controls grain particle size: smaller values = finer grain
-    // Map 1-100 to canvas scale factor (1 = full res, 100 = very coarse)
-    const scaleFactor = Math.max(1, Math.round(size / 8));
-    const w = Math.max(16, Math.round(canvas.clientWidth / scaleFactor));
-    const h = Math.max(16, Math.round(canvas.clientHeight / scaleFactor));
+    // Render grain at display resolution for quality
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (w <= 0 || h <= 0) return;
     grainCanvas.width = w;
     grainCanvas.height = h;
 
@@ -313,28 +312,62 @@
     for (let i = 0; i < imageUrl.length; i++) seed = ((seed << 5) - seed + imageUrl.charCodeAt(i)) | 0;
     seed = Math.abs(seed) || 42;
 
-    // Roughness controls grain uniformity:
-    // Low roughness = smooth/uniform noise
-    // High roughness = clumpy/contrasty noise (via thresholding)
-    const threshold = roughness / 100; // 0-1
-
-    for (let i = 0; i < d.length; i += 4) {
+    // Generate base noise at pixel level
+    const noiseData = new Float32Array(w * h);
+    for (let i = 0; i < noiseData.length; i++) {
       seed = (seed * 1664525 + 1013904223) & 0x7FFFFFFF;
-      let noise = ((seed >> 16) & 0xFF);
+      // Box-Muller for Gaussian noise (more film-like than uniform)
+      const u1 = ((seed >> 8) & 0xFFFF) / 65536;
+      seed = (seed * 1664525 + 1013904223) & 0x7FFFFFFF;
+      const u2 = ((seed >> 8) & 0xFFFF) / 65536;
+      noiseData[i] = Math.sqrt(-2 * Math.log(u1 + 0.0001)) * Math.cos(2 * Math.PI * u2);
+    }
 
-      // Apply roughness: high roughness pushes noise toward extremes
-      if (threshold > 0) {
-        const norm = noise / 255;
-        const rough = norm < 0.5
-          ? 0.5 * Math.pow(2 * norm, 1 + threshold * 3)
-          : 1 - 0.5 * Math.pow(2 * (1 - norm), 1 + threshold * 3);
-        noise = Math.round(rough * 255);
+    // Size: blur the noise to create larger grain particles
+    // Size 1 = fine (no blur), Size 100 = very large grain (heavy blur)
+    if (size > 5) {
+      const radius = Math.round(size / 15); // 0-6 pixel blur radius
+      if (radius > 0) {
+        // Simple box blur for speed
+        const tmp = new Float32Array(noiseData.length);
+        // Horizontal pass
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            let sum = 0, count = 0;
+            for (let dx = -radius; dx <= radius; dx++) {
+              const nx = x + dx;
+              if (nx >= 0 && nx < w) { sum += noiseData[y * w + nx]; count++; }
+            }
+            tmp[y * w + x] = sum / count;
+          }
+        }
+        // Vertical pass
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            let sum = 0, count = 0;
+            for (let dy = -radius; dy <= radius; dy++) {
+              const ny = y + dy;
+              if (ny >= 0 && ny < h) { sum += tmp[ny * w + x]; count++; }
+            }
+            noiseData[y * w + x] = sum / count;
+          }
+        }
       }
+    }
 
-      d[i] = noise;
-      d[i + 1] = noise;
-      d[i + 2] = noise;
-      d[i + 3] = Math.round(amount * 100);
+    // Roughness: controls contrast of grain
+    // Low roughness = subtle, uniform. High roughness = harsh, clumpy
+    const roughMult = 0.5 + (roughness / 100) * 2; // 0.5x to 2.5x contrast
+
+    // Write to canvas
+    const alpha = Math.round(amount * 120);
+    for (let i = 0; i < noiseData.length; i++) {
+      const val = Math.max(0, Math.min(255, 128 + noiseData[i] * 40 * roughMult));
+      const idx = i * 4;
+      d[idx] = val;
+      d[idx + 1] = val;
+      d[idx + 2] = val;
+      d[idx + 3] = alpha;
     }
     ctx.putImageData(imgData, 0, 0);
   }
@@ -385,8 +418,7 @@
   <canvas
     bind:this={grainCanvas}
     class="absolute inset-0 w-full h-full pointer-events-none"
-    style="mix-blend-mode: overlay; opacity: {developManager.grain * 0.6};
-      image-rendering: pixelated; object-fit: cover;"
+    style="mix-blend-mode: overlay; opacity: {developManager.grain * 0.7};"
   ></canvas>
 {/if}
 
