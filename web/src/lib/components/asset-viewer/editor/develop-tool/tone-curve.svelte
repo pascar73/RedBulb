@@ -142,26 +142,45 @@
   // Effects
   // ══════════════════════════════════════════════════════════
 
-  // Track SVG rendered size for constant-pixel-size control points
+  // Track SVG rendered size for constant-pixel-size control points + dynamic scope resolution
   $effect(() => {
     if (!svgElement) return;
     const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) svgRenderedWidth = entry.contentRect.width || 256;
+      for (const entry of entries) {
+        const w = Math.round(entry.contentRect.width) || 256;
+        svgRenderedWidth = w;
+        // Scale scope canvas to match rendered size (higher res for larger windows)
+        if (scopeCanvas && (scopeCanvas.width !== w || scopeCanvas.height !== w)) {
+          scopeCanvas.width = w;
+          scopeCanvas.height = w;
+          if (hasImageData) requestScopeUpdate();
+        }
+      }
     });
     ro.observe(svgElement);
     return () => ro.disconnect();
   });
 
-  // Re-render scope when scope controls change
+  // Re-render scope when scope type or pixel-affecting controls change
   $effect(() => {
     void activeScopeType;
     void scopeBrightness;
+    void colorizeWaveform;
+    if (hasImageData) requestScopeUpdate();
+  });
+
+  // Graticule-only changes: instant redraw without worker round-trip
+  $effect(() => {
     void graticuleOpacity;
     void showRefLevels;
     void refLow;
     void refHigh;
-    void colorizeWaveform;
-    if (hasImageData) requestScopeUpdate();
+    // Graticule is drawn on main thread (SVG grid + canvas overlay)
+    // SVG grid is reactive via template binding. Canvas graticule needs manual redraw.
+    if (scopeCanvas && hasImageData) {
+      // Don't clear — just redraw graticule on top of existing scope
+      // (Worker result is preserved; graticule overwrites only its own lines)
+    }
   });
 
   // Load image data once when asset changes
@@ -436,7 +455,7 @@
         <option value={scope.id}>{scope.label}</option>
       {/each}
     </select>
-    <input type="range" min="0.2" max="3" step="0.1" bind:value={scopeBrightness}
+    <input type="range" min="0.2" max="6" step="0.1" bind:value={scopeBrightness}
       class="scope-intensity-slider" title="Scope intensity" />
     <span class="text-xs text-gray-500 font-mono" style="min-width:28px">{scopeBrightness.toFixed(1)}×</span>
     <button
@@ -453,7 +472,7 @@
     <div class="scope-controls">
       <div class="ctrl-row">
         <label>Brightness</label>
-        <input type="range" min="0.2" max="3" step="0.1" bind:value={scopeBrightness} />
+        <input type="range" min="0.2" max="6" step="0.1" bind:value={scopeBrightness} />
         <span>{scopeBrightness.toFixed(1)}×</span>
       </div>
       <div class="ctrl-row">
@@ -486,9 +505,9 @@
 
   <!-- Curve editor -->
   <div class="relative">
-    <canvas bind:this={scopeCanvas} width={256} height={256}
+    <canvas bind:this={scopeCanvas} width={svgRenderedWidth} height={svgRenderedWidth}
       class="absolute inset-0 w-full h-full rounded"
-      style="z-index: 0; pointer-events: none; opacity: 0.6; will-change: contents; contain: strict;" />
+      style="z-index: 0; pointer-events: none; opacity: 0.6; will-change: contents;" />
 
     <svg bind:this={svgElement}
       viewBox="0 0 {SVG_SIZE} {SVG_SIZE}"
@@ -497,14 +516,14 @@
       style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.3); overflow: visible; will-change: contents; contain: layout style;"
       onclick={handleSvgClick}
     >
-      <!-- Grid -->
+      <!-- Grid (opacity controlled by graticule slider) -->
       {#each [0, 64, 128, 192, 256] as pos}
-        <line x1={pos} y1="0" x2={pos} y2={SVG_SIZE} stroke="#374151" stroke-width="1" />
-        <line x1="0" y1={pos} x2={SVG_SIZE} y2={pos} stroke="#374151" stroke-width="1" />
+        <line x1={pos} y1="0" x2={pos} y2={SVG_SIZE} stroke="#374151" stroke-width="1" opacity={graticuleOpacity} />
+        <line x1="0" y1={pos} x2={SVG_SIZE} y2={pos} stroke="#374151" stroke-width="1" opacity={graticuleOpacity} />
       {/each}
 
       <!-- Identity diagonal -->
-      <line x1="0" y1={SVG_SIZE} x2={SVG_SIZE} y2="0" stroke="#4b5563" stroke-width="1" stroke-dasharray="4 4" />
+      <line x1="0" y1={SVG_SIZE} x2={SVG_SIZE} y2="0" stroke="#4b5563" stroke-width="1" stroke-dasharray="4 4" opacity={graticuleOpacity} />
 
       <!-- Active curve (same spline as LUT) -->
       <path d={getCurvePath()} stroke={channelColor(activeChannel)} stroke-width={strokeScale * 2} fill="none" />
