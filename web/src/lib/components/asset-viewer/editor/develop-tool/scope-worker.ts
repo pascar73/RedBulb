@@ -6,6 +6,21 @@
  * This keeps the main thread free for buttery-smooth curve dragging.
  */
 
+export interface LightParams {
+  exposure: number;
+  highlights: number;
+  shadows: number;
+  whites: number;
+  blacks: number;
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  vibrance: number;
+  clarity: number;
+  dehaze: number;
+  fade: number;
+}
+
 export interface ScopeRequest {
   type: 'init' | 'render';
   // init: set raw pixel data
@@ -22,6 +37,7 @@ export interface ScopeRequest {
   canvasH?: number;
   brightness?: number;
   colorize?: boolean;
+  light?: LightParams;
 }
 
 export interface ScopeResponse {
@@ -32,15 +48,78 @@ export interface ScopeResponse {
 }
 
 // Worker state
-let pixelData: Uint8ClampedArray | null = null;
+let pixelData: Uint8ClampedArray | null = null;  // original pixels
+let processedPixels: Uint8ClampedArray | null = null;  // light-adjusted pixels
 let imgW = 0;
 let imgH = 0;
+let lastLightKey = '';
+
+/**
+ * Apply Light slider adjustments to pixel data (matches preview-canvas CSS filter logic).
+ * We simulate brightness/contrast/saturation per-pixel since the scope reads raw data.
+ */
+function applyLightToPixels(src: Uint8ClampedArray, p: LightParams): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(src.length);
+
+  // Compute combined multipliers (same math as buildFilterString in preview-canvas)
+  let bright = Math.pow(2, p.exposure * 0.5);
+  let contrast = 1 + p.contrast;
+  let saturate = 1 + p.saturation;
+
+  if (p.highlights > 0) bright *= 1 + p.highlights * 0.15;
+  if (p.shadows > 0) bright *= 1 + p.shadows * 0.1;
+  bright *= 1 + p.whites * 0.2;
+  bright *= 1 + p.blacks * 0.15;
+  bright *= 1 + p.brightness * 0.5;
+
+  saturate *= 1 + p.vibrance * 0.5;
+  contrast *= 1 + p.clarity * 0.3;
+  contrast *= 1 + p.dehaze * 0.4;
+  saturate *= 1 + p.dehaze * 0.2;
+
+  if (p.fade > 0) {
+    contrast *= 1 - p.fade * 0.3;
+    bright *= 1 + p.fade * 0.15;
+  }
+
+  // Apply per-pixel: brightness → contrast → saturation
+  for (let i = 0; i < src.length; i += 4) {
+    // Brightness
+    let r = src[i] * bright;
+    let g = src[i + 1] * bright;
+    let b = src[i + 2] * bright;
+
+    // Contrast (around 128 midpoint)
+    r = (r - 128) * contrast + 128;
+    g = (g - 128) * contrast + 128;
+    b = (b - 128) * contrast + 128;
+
+    // Saturation (luminance-preserving)
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    r = lum + (r - lum) * saturate;
+    g = lum + (g - lum) * saturate;
+    b = lum + (b - lum) * saturate;
+
+    out[i] = Math.max(0, Math.min(255, Math.round(r)));
+    out[i + 1] = Math.max(0, Math.min(255, Math.round(g)));
+    out[i + 2] = Math.max(0, Math.min(255, Math.round(b)));
+    out[i + 3] = src[i + 3];
+  }
+  return out;
+}
+
+function lightKey(p?: LightParams): string {
+  if (!p) return '';
+  return `${p.exposure},${p.highlights},${p.shadows},${p.whites},${p.blacks},${p.brightness},${p.contrast},${p.saturation},${p.vibrance},${p.clarity},${p.dehaze},${p.fade}`;
+}
 
 self.onmessage = (e: MessageEvent<ScopeRequest>) => {
   const msg = e.data;
 
   if (msg.type === 'init' && msg.pixels) {
     pixelData = new Uint8ClampedArray(msg.pixels);
+    processedPixels = null;
+    lastLightKey = '';
     imgW = msg.imgWidth ?? 0;
     imgH = msg.imgHeight ?? 0;
     return;
@@ -55,6 +134,17 @@ self.onmessage = (e: MessageEvent<ScopeRequest>) => {
     const blueLUT = new Uint8Array(msg.blueLUT!);
     const gain = msg.brightness ?? 1.0;
     const colorize = msg.colorize ?? true;
+
+    // Apply light adjustments (cached — only recompute when params change)
+    const lk = lightKey(msg.light);
+    if (lk !== lastLightKey || !processedPixels) {
+      if (msg.light && lk !== '') {
+        processedPixels = applyLightToPixels(pixelData, msg.light);
+      } else {
+        processedPixels = pixelData;
+      }
+      lastLightKey = lk;
+    }
 
     const output = new Uint8ClampedArray(W * H * 4);
 
@@ -84,11 +174,11 @@ function applyLUT(r: number, g: number, b: number, mL: Uint8Array, rL: Uint8Arra
 // ── Histogram ──────────────────────────────────────────────
 function renderHistogram(out: Uint8ClampedArray, W: number, H: number,
   mL: Uint8Array, rL: Uint8Array, gL: Uint8Array, bL: Uint8Array, gain: number) {
-  if (!pixelData) return;
+  if (!processedPixels) return;
   const rH = new Uint32Array(256), gH = new Uint32Array(256), bH = new Uint32Array(256), lH = new Uint32Array(256);
 
-  for (let i = 0; i < pixelData.length; i += 4) {
-    const [r, g, b] = applyLUT(pixelData[i], pixelData[i + 1], pixelData[i + 2], mL, rL, gL, bL);
+  for (let i = 0; i < processedPixels.length; i += 4) {
+    const [r, g, b] = applyLUT(processedPixels[i], processedPixels[i + 1], processedPixels[i + 2], mL, rL, gL, bL);
     rH[r]++; gH[g]++; bH[b]++;
     lH[Math.round(0.299 * r + 0.587 * g + 0.114 * b)]++;
   }
@@ -126,14 +216,14 @@ function renderHistogram(out: Uint8ClampedArray, W: number, H: number,
 // ── Parade ──────────────────────────────────────────────────
 function renderParade(out: Uint8ClampedArray, W: number, H: number,
   mL: Uint8Array, rL: Uint8Array, gL: Uint8Array, bL: Uint8Array, gain: number) {
-  if (!pixelData || !imgW || !imgH) return;
+  if (!processedPixels || !imgW || !imgH) return;
   const sW = Math.floor(W / 3), gap = 2;
   const rB = new Uint16Array(sW * H), gB = new Uint16Array(sW * H), bB = new Uint16Array(sW * H);
 
   for (let row = 0; row < imgH; row++) {
     for (let col = 0; col < imgW; col++) {
       const i = (row * imgW + col) * 4;
-      const [r, g, b] = applyLUT(pixelData[i], pixelData[i + 1], pixelData[i + 2], mL, rL, gL, bL);
+      const [r, g, b] = applyLUT(processedPixels[i], processedPixels[i + 1], processedPixels[i + 2], mL, rL, gL, bL);
       const xBin = Math.floor(col / imgW * sW);
       rB[Math.floor((1 - r / 255) * (H - 1)) * sW + xBin]++;
       gB[Math.floor((1 - g / 255) * (H - 1)) * sW + xBin]++;
@@ -168,13 +258,13 @@ function renderParade(out: Uint8ClampedArray, W: number, H: number,
 // ── Waveform ────────────────────────────────────────────────
 function renderWaveform(out: Uint8ClampedArray, W: number, H: number,
   mL: Uint8Array, rL: Uint8Array, gL: Uint8Array, bL: Uint8Array, gain: number, colorize: boolean) {
-  if (!pixelData || !imgW || !imgH) return;
+  if (!processedPixels || !imgW || !imgH) return;
   const rB = new Uint16Array(W * H), gB = new Uint16Array(W * H), bB = new Uint16Array(W * H);
 
   for (let row = 0; row < imgH; row++) {
     for (let col = 0; col < imgW; col++) {
       const i = (row * imgW + col) * 4;
-      const [r, g, b] = applyLUT(pixelData[i], pixelData[i + 1], pixelData[i + 2], mL, rL, gL, bL);
+      const [r, g, b] = applyLUT(processedPixels[i], processedPixels[i + 1], processedPixels[i + 2], mL, rL, gL, bL);
       const xBin = Math.floor(col / imgW * W);
       rB[Math.floor((1 - r / 255) * (H - 1)) * W + xBin]++;
       gB[Math.floor((1 - g / 255) * (H - 1)) * W + xBin]++;
@@ -209,13 +299,13 @@ function renderWaveform(out: Uint8ClampedArray, W: number, H: number,
 // ── Vectorscope ─────────────────────────────────────────────
 function renderVectorscope(out: Uint8ClampedArray, W: number, H: number,
   mL: Uint8Array, rL: Uint8Array, gL: Uint8Array, bL: Uint8Array, gain: number) {
-  if (!pixelData || !imgW || !imgH) return;
+  if (!processedPixels || !imgW || !imgH) return;
   const cx = W / 2, cy = H / 2, radius = Math.min(cx, cy) - 8;
   const buf = new Uint16Array(W * H);
 
   for (let pix = 0; pix < imgW * imgH; pix++) {
     const i = pix * 4;
-    const [r, g, b] = applyLUT(pixelData[i], pixelData[i + 1], pixelData[i + 2], mL, rL, gL, bL);
+    const [r, g, b] = applyLUT(processedPixels[i], processedPixels[i + 1], processedPixels[i + 2], mL, rL, gL, bL);
     const rf = r / 255, gf = g / 255, bf = b / 255;
     const cb = -0.169 * rf - 0.331 * gf + 0.5 * bf;
     const cr = 0.5 * rf - 0.419 * gf - 0.081 * bf;
@@ -262,15 +352,15 @@ function hueToRgb(h: number): [number, number, number] {
 // ── CIE Chromaticity ────────────────────────────────────────
 function renderCIE(out: Uint8ClampedArray, W: number, H: number,
   mL: Uint8Array, rL: Uint8Array, gL: Uint8Array, bL: Uint8Array) {
-  if (!pixelData || !imgW || !imgH) return;
+  if (!processedPixels || !imgW || !imgH) return;
   const sx = (x: number) => Math.round(10 + (x / 0.8) * (W - 20));
   const sy = (y: number) => Math.round(H - 10 - (y / 0.9) * (H - 20));
 
   const buf = new Uint16Array(W * H);
   for (let pix = 0; pix < imgW * imgH; pix += 3) {
     const i = pix * 4;
-    if (i + 2 >= pixelData.length) break;
-    const [r, g, b] = applyLUT(pixelData[i], pixelData[i + 1], pixelData[i + 2], mL, rL, gL, bL);
+    if (i + 2 >= processedPixels.length) break;
+    const [r, g, b] = applyLUT(processedPixels[i], processedPixels[i + 1], processedPixels[i + 2], mL, rL, gL, bL);
     const rf = r / 255, gf = g / 255, bf = b / 255;
     const rl = rf <= 0.04045 ? rf / 12.92 : Math.pow((rf + 0.055) / 1.055, 2.4);
     const gl = gf <= 0.04045 ? gf / 12.92 : Math.pow((gf + 0.055) / 1.055, 2.4);

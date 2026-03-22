@@ -192,16 +192,6 @@
 {/snippet}
 
 <div class="develop-panel">
-  <!-- Save bar -->
-  {#if developManager.hasChanges}
-    <div class="save-bar">
-      <button class="save-btn" onclick={saveEdits}>
-        {#if saveStatus === 'saving'}⏳ Saving...{:else if saveStatus === 'saved'}✅ Saved{:else}💾 Save{/if}
-      </button>
-      <span class="autosave-hint">Auto-saves after 3s</span>
-    </div>
-  {/if}
-
   <!-- LIGHT -->
   <div class="section-card">
     {@render sectionHeader('light', 'Light', lightSliders)}

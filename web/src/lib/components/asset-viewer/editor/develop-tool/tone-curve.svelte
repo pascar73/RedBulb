@@ -161,11 +161,15 @@
     return () => ro.disconnect();
   });
 
-  // Re-render scope when scope type or pixel-affecting controls change
+  // Re-render scope when scope type, pixel-affecting controls, or Light params change
   $effect(() => {
     void activeScopeType;
     void scopeBrightness;
     void colorizeWaveform;
+    // Track Light slider changes so histogram reflects adjustments
+    const p = developManager.params;
+    void [p.exposure, p.highlights, p.shadows, p.whites, p.blacks, p.brightness,
+          p.contrast, p.saturation, p.vibrance, p.clarity, p.dehaze, p.fade];
     if (hasImageData) requestScopeUpdate();
   });
 
@@ -384,6 +388,20 @@
       canvasH: scopeCanvas.height,
       brightness: scopeBrightness,
       colorize: colorizeWaveform,
+      light: {
+        exposure: developManager.params.exposure,
+        highlights: developManager.params.highlights,
+        shadows: developManager.params.shadows,
+        whites: developManager.params.whites,
+        blacks: developManager.params.blacks,
+        brightness: developManager.params.brightness,
+        contrast: developManager.params.contrast,
+        saturation: developManager.params.saturation,
+        vibrance: developManager.params.vibrance,
+        clarity: developManager.params.clarity,
+        dehaze: developManager.params.dehaze,
+        fade: developManager.params.fade,
+      },
     }, [mBuf, rBuf, gBuf, bBuf]);
   }
 
