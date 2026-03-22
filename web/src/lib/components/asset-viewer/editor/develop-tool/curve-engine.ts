@@ -9,15 +9,17 @@ export type Endpoints = { black: number; white: number };
 
 /**
  * Build the full sorted point array including endpoints.
+ * Black point: slides along bottom edge (y=0, x=ep.black)
+ * White point: slides along top edge (y=1, x=ep.white)
  */
 export function buildAllPoints(
   points: CurvePoint[],
   ep: Endpoints = { black: 0, white: 1 },
 ): CurvePoint[] {
   return [
-    { x: 0, y: ep.black },
+    { x: ep.black, y: 0 },
     ...points,
-    { x: 1, y: ep.white },
+    { x: ep.white, y: 1 },
   ].sort((a, b) => a.x - b.x);
 }
 

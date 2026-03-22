@@ -246,7 +246,7 @@
 
     // Check proximity to existing points (including endpoints)
     const ep = getEp();
-    const allPts = [{ x: 0, y: ep.black }, ...points, { x: 1, y: ep.white }];
+    const allPts = [{ x: ep.black, y: 0 }, ...points, { x: ep.white, y: 1 }];
     const tooClose = allPts.some(p => {
       const dx = (p.x - x) * SVG_SIZE, dy = (p.y - y) * SVG_SIZE;
       return Math.sqrt(dx * dx + dy * dy) < pointRadius * 2;
@@ -292,8 +292,17 @@
     const rect = svgElement.getBoundingClientRect();
     const y = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
 
-    if (draggingEndpoint === -1) { setEndpoint(activeChannel, 'black', y); return; }
-    if (draggingEndpoint === -2) { setEndpoint(activeChannel, 'white', y); return; }
+    // Endpoints slide along x axis (black along bottom, white along top)
+    if (draggingEndpoint === -1) {
+      const x = Math.max(0, Math.min(0.99, (clientX - rect.left) / rect.width));
+      setEndpoint(activeChannel, 'black', x);
+      return;
+    }
+    if (draggingEndpoint === -2) {
+      const x = Math.max(0.01, Math.min(1, (clientX - rect.left) / rect.width));
+      setEndpoint(activeChannel, 'white', x);
+      return;
+    }
     if (draggingIndex === null) return;
 
     const x = Math.max(0.01, Math.min(0.99, (clientX - rect.left) / rect.width));
@@ -497,30 +506,30 @@
       <!-- Active curve (same spline as LUT) -->
       <path d={getCurvePath()} stroke={channelColor(activeChannel)} stroke-width={strokeScale * 2} fill="none" />
 
-      <!-- Black point endpoint -->
+      <!-- Black point endpoint — slides along bottom edge (y=0) -->
       <circle
-        cx={pointRadius * 0.8}
-        cy={(1 - getEp().black) * SVG_SIZE}
+        cx={getEp().black * SVG_SIZE}
+        cy={SVG_SIZE - pointRadius * 0.8}
         r={pointRadius}
         fill={getEp().black !== 0 ? channelColor(activeChannel) : 'rgba(128,128,128,0.3)'}
         stroke={channelColor(activeChannel)}
         stroke-width={strokeScale * 1.5}
         role="slider" aria-label="Black point" aria-valuenow={Math.round(getEp().black * 100)}
-        class="cursor-ns-resize"
+        class="cursor-ew-resize"
         onmousedown={(e) => handleEndpointDown(-1, e)}
         ontouchstart={(e) => handleEndpointDown(-1, e)}
         ondblclick={(e) => handleEndpointDblClick('black', e)}
       />
-      <!-- White point endpoint -->
+      <!-- White point endpoint — slides along top edge (y=1) -->
       <circle
-        cx={SVG_SIZE - pointRadius * 0.8}
-        cy={(1 - getEp().white) * SVG_SIZE}
+        cx={getEp().white * SVG_SIZE}
+        cy={pointRadius * 0.8}
         r={pointRadius}
         fill={getEp().white !== 1 ? channelColor(activeChannel) : 'rgba(128,128,128,0.3)'}
         stroke={channelColor(activeChannel)}
         stroke-width={strokeScale * 1.5}
         role="slider" aria-label="White point" aria-valuenow={Math.round(getEp().white * 100)}
-        class="cursor-ns-resize"
+        class="cursor-ew-resize"
         onmousedown={(e) => handleEndpointDown(-2, e)}
         ontouchstart={(e) => handleEndpointDown(-2, e)}
         ondblclick={(e) => handleEndpointDblClick('white', e)}
