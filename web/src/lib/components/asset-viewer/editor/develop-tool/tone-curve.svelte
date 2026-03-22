@@ -88,10 +88,10 @@
       curves.green.length, curves.green.map(p => p.x + p.y).join(),
       curves.blue.length, curves.blue.map(p => p.x + p.y).join(),
       // Track endpoint changes too
-      endpoints.master.black, endpoints.master.white,
-      endpoints.red.black, endpoints.red.white,
-      endpoints.green.black, endpoints.green.white,
-      endpoints.blue.black, endpoints.blue.white,
+      developManager.curveEndpoints.master.black, developManager.curveEndpoints.master.white,
+      developManager.curveEndpoints.red.black, developManager.curveEndpoints.red.white,
+      developManager.curveEndpoints.green.black, developManager.curveEndpoints.green.white,
+      developManager.curveEndpoints.blue.black, developManager.curveEndpoints.blue.white,
     ];
     if (rawPixelData) {
       if (histTimeout) clearTimeout(histTimeout);
@@ -128,7 +128,7 @@
 
   function buildCurveLUT(points: Array<{ x: number; y: number }>, channel?: Channel): Uint8Array {
     const lut = new Uint8Array(256);
-    const ep = channel ? endpoints[channel] : { black: 0, white: 1 };
+    const ep = channel ? getEndpoints()[channel] : { black: 0, white: 1 };
 
     if (points.length === 0 && ep.black === 0 && ep.white === 1) {
       // Identity — no curve adjustment
@@ -671,8 +671,14 @@
     { id: 'blue', label: 'Blue', color: '#3b82f6' },
   ];
 
-  // Endpoint state stored in developManager for persistence
-  let endpoints = $derived(developManager.curveEndpoints);
+  // Direct reference to endpoint state — avoid $derived to keep mutations reactive
+  function getEndpoints() { return developManager.curveEndpoints; }
+  function setEndpoint(channel: Channel, point: 'black' | 'white', value: number) {
+    developManager.curveEndpoints[channel] = {
+      ...developManager.curveEndpoints[channel],
+      [point]: value
+    };
+  }
 
   // -1 = dragging black point, -2 = dragging white point
   let draggingEndpoint = $state<number | null>(null);
@@ -686,7 +692,7 @@
   }
 
   function getAllPointsWithEndpoints() {
-    const ep = endpoints[activeChannel];
+    const ep = getEndpoints()[activeChannel];
     return [
       { x: 0, y: ep.black },
       ...getPoints(),
@@ -756,11 +762,11 @@
 
     // Handle endpoint dragging (x locked, only y moves)
     if (draggingEndpoint === -1) {
-      endpoints[activeChannel].black = y;
+      setEndpoint(activeChannel, 'black', y);
       return;
     }
     if (draggingEndpoint === -2) {
-      endpoints[activeChannel].white = y;
+      setEndpoint(activeChannel, 'white', y);
       return;
     }
 
@@ -805,12 +811,13 @@
   // Monotone cubic spline interpolation (Fritsch-Carlson)
   function getCurvePath(): string {
     const points = getPoints();
+    const ep = getEndpoints()[activeChannel];
     if (points.length === 0) {
-      return `M 0,${SVG_SIZE} L ${SVG_SIZE},0`;
+      // No mid-points — straight line between endpoints
+      return `M 0,${(1 - ep.black) * SVG_SIZE} L ${SVG_SIZE},${(1 - ep.white) * SVG_SIZE}`;
     }
 
     // Include draggable endpoints
-    const ep = endpoints[activeChannel];
     const allPoints = [
       { x: 0, y: ep.black },
       ...points,
@@ -1006,28 +1013,28 @@
       <!-- Draggable endpoint: black point (x=0) — offset slightly inward so it's fully visible -->
       <circle
         cx={pointRadius * 0.8}
-        cy={(1 - endpoints[activeChannel].black) * SVG_SIZE}
+        cy={(1 - getEndpoints()[activeChannel].black) * SVG_SIZE}
         r={pointRadius}
-        fill={endpoints[activeChannel].black !== 0 ? channels.find(c => c.id === activeChannel)?.color : 'rgba(128,128,128,0.3)'}
+        fill={getEndpoints()[activeChannel].black !== 0 ? channels.find(c => c.id === activeChannel)?.color : 'rgba(128,128,128,0.3)'}
         stroke={channels.find(c => c.id === activeChannel)?.color}
         stroke-width={strokeScale * 1.5}
         class="cursor-ns-resize"
         onmousedown={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -1; }}
         ontouchstart={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -1; }}
-        ondblclick={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; endpoints[activeChannel].black = 0; }}
+        ondblclick={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; setEndpoint(activeChannel, 'black', 0); }}
       />
       <!-- Draggable endpoint: white point (x=1) — offset slightly inward -->
       <circle
         cx={SVG_SIZE - pointRadius * 0.8}
-        cy={(1 - endpoints[activeChannel].white) * SVG_SIZE}
+        cy={(1 - getEndpoints()[activeChannel].white) * SVG_SIZE}
         r={pointRadius}
-        fill={endpoints[activeChannel].white !== 1 ? channels.find(c => c.id === activeChannel)?.color : 'rgba(128,128,128,0.3)'}
+        fill={getEndpoints()[activeChannel].white !== 1 ? channels.find(c => c.id === activeChannel)?.color : 'rgba(128,128,128,0.3)'}
         stroke={channels.find(c => c.id === activeChannel)?.color}
         stroke-width={strokeScale * 1.5}
         class="cursor-ns-resize"
         onmousedown={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -2; }}
         ontouchstart={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; draggingEndpoint = -2; }}
-        ondblclick={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; endpoints[activeChannel].white = 1; }}
+        ondblclick={(e) => { e.stopPropagation(); e.preventDefault(); pointClicked = true; setEndpoint(activeChannel, 'white', 1); }}
       />
 
       <!-- Control points -->
