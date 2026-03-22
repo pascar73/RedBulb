@@ -414,7 +414,7 @@
   .section-header-right {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
   }
 
   /* Chevron rotation */
@@ -488,12 +488,12 @@
 
   /* Per-section reset button */
   .section-reset {
-    width: 22px;
-    height: 22px;
+    width: 26px;
+    height: 26px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 13px;
+    font-size: 15px;
     color: #4b5563;
     background: transparent;
     border: none;
@@ -517,12 +517,12 @@
 
   /* Pop-out button */
   .section-popout {
-    width: 22px;
-    height: 22px;
+    width: 26px;
+    height: 26px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 13px;
+    font-size: 15px;
     color: #6b7280;
     background: transparent;
     border: none;
