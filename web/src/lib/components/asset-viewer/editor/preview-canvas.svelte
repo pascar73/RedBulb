@@ -1,6 +1,7 @@
 <script lang="ts">
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
   import { buildCurveLUT as buildCurveLUTShared } from './develop-tool/curve-engine';
+  import PreviewWorker from './preview-worker?worker';
   
   interface Props {
     imageUrl: string;
@@ -16,6 +17,37 @@
   let originalImageData: ImageData | null = null;
   let origW = 0;
   let origH = 0;
+
+  // Preview worker for off-main-thread pixel processing
+  let previewWorker: Worker | null = null;
+  let workerBusy = false;
+  let pendingRender = false;
+  let cachedImg: HTMLImageElement | null = null;
+  let cachedImgUrl = '';
+
+  $effect(() => {
+    previewWorker = new PreviewWorker();
+    previewWorker.onmessage = (e) => {
+      if (e.data.type === 'processed' && canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const imgData = new ImageData(
+            new Uint8ClampedArray(e.data.pixels),
+            e.data.width,
+            e.data.height,
+          );
+          ctx.putImageData(imgData, 0, 0);
+        }
+      }
+      workerBusy = false;
+      isProcessing = false;
+      if (pendingRender) {
+        pendingRender = false;
+        void renderPreview();
+      }
+    };
+    return () => { previewWorker?.terminate(); previewWorker = null; };
+  });
 
   /** Handle eyedropper click on the preview canvas */
   function handleEyedropperClick(event: MouseEvent) {
@@ -111,20 +143,29 @@
   
   async function renderPreview() {
     if (!canvas || !imageUrl) return;
+
+    // If worker is busy, queue the render
+    if (workerBusy) { pendingRender = true; return; }
+
     isProcessing = true;
     
     try {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       
-      // Load original image
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = reject;
-        img.src = imageUrl;
-      });
+      // Cache image — don't reload every render
+      if (!cachedImg || cachedImgUrl !== imageUrl) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = reject;
+          img.src = imageUrl;
+        });
+        cachedImg = img;
+        cachedImgUrl = imageUrl;
+      }
+      const img = cachedImg;
       
       // Set canvas size to image size (or max 2000px)
       const scale = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
@@ -137,13 +178,13 @@
       origW = canvas.width;
       origH = canvas.height;
 
-      // Step 1: Apply CSS-compatible filters via ctx.filter
+      // Step 1: Apply CSS-compatible filters via ctx.filter (GPU-accelerated by browser)
       const p = developManager.params;
       ctx.filter = buildFilterString(p);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      ctx.filter = 'none'; // Reset for pixel operations
+      ctx.filter = 'none';
       
-      // Step 2: Per-pixel processing for curves and HSL
+      // Step 2: Per-pixel processing — offloaded to Web Worker
       const curves = developManager.curves;
       const hsl = developManager.hsl;
       const ep = developManager.curveEndpoints;
@@ -153,46 +194,44 @@
       const hasHSL = Object.values(hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0);
       const hasColorGrading = Object.values(cw).some(w => w.hue !== 0 || w.sat !== 0 || w.lum !== 0);
       
-      if (hasCurves || hasEndpoints || hasHSL || hasColorGrading) {
+      if ((hasCurves || hasEndpoints || hasHSL || hasColorGrading) && previewWorker) {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imageData.data;
         
-        // Build lookup tables for curves (shared monotone cubic hermite spline)
+        // Build LUTs on main thread (fast — just 256-entry tables)
         const masterLUT = buildCurveLUTShared(curves.master, ep.master);
         const redLUT = buildCurveLUTShared(curves.red, ep.red);
         const greenLUT = buildCurveLUTShared(curves.green, ep.green);
         const blueLUT = buildCurveLUTShared(curves.blue, ep.blue);
-        
-        for (let i = 0; i < data.length; i += 4) {
-          let r = data[i], g = data[i+1], b = data[i+2];
-          
-          // Apply curves (including endpoint adjustments)
-          if (hasCurves || hasEndpoints) {
-            r = masterLUT[redLUT[r]];
-            g = masterLUT[greenLUT[g]];
-            b = masterLUT[blueLUT[b]];
-          }
-          
-          // Apply HSL adjustments
-          if (hasHSL) {
-            [r, g, b] = applyHSL(r, g, b, hsl);
-          }
-          
-          // Apply color grading (3-way color wheels: shadows/midtones/highlights)
-          if (hasColorGrading) {
-            [r, g, b] = applyColorGrading(r, g, b, cw);
-          }
-          
-          data[i] = r;
-          data[i+1] = g;
-          data[i+2] = b;
-        }
-        
-        ctx.putImageData(imageData, 0, 0);
+
+        // Transfer pixel data to worker (zero-copy)
+        const pixelBuf = imageData.data.buffer;
+        const mBuf = masterLUT.slice().buffer;
+        const rBuf = redLUT.slice().buffer;
+        const gBuf = greenLUT.slice().buffer;
+        const bBuf = blueLUT.slice().buffer;
+
+        workerBusy = true;
+        previewWorker.postMessage({
+          type: 'process',
+          pixels: pixelBuf,
+          width: canvas.width,
+          height: canvas.height,
+          masterLUT: mBuf,
+          redLUT: rBuf,
+          greenLUT: gBuf,
+          blueLUT: bBuf,
+          hasCurves: hasCurves || hasEndpoints,
+          hsl: JSON.parse(JSON.stringify(hsl)),
+          hasHSL,
+          colorWheels: JSON.parse(JSON.stringify(cw)),
+          hasColorGrading,
+        }, [pixelBuf, mBuf, rBuf, gBuf, bBuf]);
+        // Worker will call back via onmessage → putImageData
+      } else {
+        isProcessing = false;
       }
     } catch (error) {
       console.error('Canvas preview rendering failed:', error);
-    } finally {
       isProcessing = false;
     }
   }
@@ -239,134 +278,7 @@
     return filters;
   }
   
-  // buildCurveLUT now imported from curve-engine.ts (shared monotone cubic hermite spline)
-  
-  // Apply per-channel HSL adjustments
-  function applyHSL(r: number, g: number, b: number, hsl: typeof developManager.hsl): [number, number, number] {
-    // Convert RGB to HSL
-    const rf = r / 255, gf = g / 255, bf = b / 255;
-    const max = Math.max(rf, gf, bf), min = Math.min(rf, gf, bf);
-    const l = (max + min) / 2;
-    
-    if (max === min) return [r, g, b]; // Achromatic
-    
-    const d = max - min;
-    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    let h = 0;
-    if (max === rf) h = ((gf - bf) / d + (gf < bf ? 6 : 0)) / 6;
-    else if (max === gf) h = ((bf - rf) / d + 2) / 6;
-    else h = ((rf - gf) / d + 4) / 6;
-    
-    // Determine which channel this hue belongs to
-    const channels: Array<{ name: keyof typeof hsl, center: number, width: number }> = [
-      { name: 'red', center: 0, width: 0.083 },
-      { name: 'orange', center: 0.083, width: 0.083 },
-      { name: 'yellow', center: 0.167, width: 0.083 },
-      { name: 'green', center: 0.333, width: 0.083 },
-      { name: 'aqua', center: 0.5, width: 0.083 },
-      { name: 'blue', center: 0.667, width: 0.083 },
-      { name: 'purple', center: 0.75, width: 0.083 },
-      { name: 'magenta', center: 0.917, width: 0.083 },
-    ];
-    
-    let hAdj = 0, sAdj = 0, lAdj = 0;
-    for (const ch of channels) {
-      let dist = Math.abs(h - ch.center);
-      if (dist > 0.5) dist = 1 - dist;
-      if (dist < ch.width * 2) {
-        const weight = 1 - dist / (ch.width * 2);
-        const adj = hsl[ch.name];
-        hAdj += adj.h * weight * 0.1;
-        sAdj += adj.s * weight;
-        lAdj += adj.l * weight;
-      }
-    }
-    
-    // Apply adjustments
-    const newH = (h + hAdj + 1) % 1;
-    const newS = Math.max(0, Math.min(1, s * (1 + sAdj)));
-    const newL = Math.max(0, Math.min(1, l + lAdj * 0.3));
-    
-    // Convert back to RGB
-    return hslToRgb(newH, newS, newL);
-  }
-  
-  /**
-   * Apply 3-way color grading (shadows/midtones/highlights).
-   * Each wheel has hue (degrees), sat (0-1 intensity), lum (luminance shift).
-   * Zone weights based on pixel luminance: shadows (dark), midtones (mid), highlights (bright).
-   */
-  function applyColorGrading(r: number, g: number, b: number, cw: typeof developManager.colorWheels): [number, number, number] {
-    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    
-    // Zone weights (smooth transitions using cubic falloff)
-    // Shadows: strongest at lum=0, fades by lum=0.5
-    const shadowW = Math.pow(Math.max(0, 1 - lum * 2), 1.5);
-    // Highlights: strongest at lum=1, fades by lum=0.5
-    const highlightW = Math.pow(Math.max(0, lum * 2 - 1), 1.5);
-    // Midtones: bell curve peaking at lum=0.5
-    const midtoneW = 1 - shadowW - highlightW;
-
-    let rOut = r, gOut = g, bOut = b;
-
-    const zones: Array<{ w: typeof cw.shadows; weight: number }> = [
-      { w: cw.shadows, weight: shadowW },
-      { w: cw.midtones, weight: midtoneW },
-      { w: cw.highlights, weight: highlightW },
-    ];
-
-    for (const { w, weight } of zones) {
-      if (weight <= 0 || (w.hue === 0 && w.sat === 0 && w.lum === 0)) continue;
-
-      // Convert hue to tint color
-      if (w.sat > 0) {
-        const hRad = w.hue * Math.PI / 180;
-        const tintR = Math.cos(hRad) * 0.5 + 0.5;
-        const tintG = Math.cos(hRad - 2.094) * 0.5 + 0.5; // -120°
-        const tintB = Math.cos(hRad + 2.094) * 0.5 + 0.5; // +120°
-        const strength = w.sat * weight;
-        rOut += (tintR * 255 - rOut) * strength * 0.5;
-        gOut += (tintG * 255 - gOut) * strength * 0.5;
-        bOut += (tintB * 255 - bOut) * strength * 0.5;
-      }
-
-      // Luminance shift
-      if (w.lum !== 0) {
-        const lumShift = w.lum * weight * 60;
-        rOut += lumShift;
-        gOut += lumShift;
-        bOut += lumShift;
-      }
-    }
-
-    return [
-      Math.max(0, Math.min(255, Math.round(rOut))),
-      Math.max(0, Math.min(255, Math.round(gOut))),
-      Math.max(0, Math.min(255, Math.round(bOut))),
-    ];
-  }
-
-  function hslToRgb(h: number, s: number, l: number): [number, number, number] {
-    if (s === 0) {
-      const v = Math.round(l * 255);
-      return [v, v, v];
-    }
-    const hue2rgb = (p: number, q: number, t: number) => {
-      if (t < 0) t += 1;
-      if (t > 1) t -= 1;
-      if (t < 1/6) return p + (q - p) * 6 * t;
-      if (t < 1/2) return q;
-      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-      return p;
-    };
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    return [
-      Math.round(hue2rgb(p, q, h + 1/3) * 255),
-      Math.round(hue2rgb(p, q, h) * 255),
-      Math.round(hue2rgb(p, q, h - 1/3) * 255),
-    ];
-  }
+  // Per-pixel processing (curves, HSL, color grading) is now in preview-worker.ts
 </script>
 
 <canvas
