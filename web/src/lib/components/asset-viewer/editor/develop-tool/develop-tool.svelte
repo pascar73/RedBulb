@@ -180,7 +180,7 @@
         class="section-reset"
         class:has-changes={sectionHasChanges(sliders)}
         title="Reset {title}"
-        onclick={(e) => { e.stopPropagation(); resetSection(sliders); }}
+        onclick={(e) => { e.stopPropagation(); e.preventDefault(); resetSection(sliders); }}
       >↺</button>
       <span class="chevron" class:collapsed={collapsed[key]}>
         <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
@@ -227,7 +227,19 @@
             class="section-reset"
             class:has-changes={curvesHasChanges()}
             title="Reset Curves"
-            onclick={(e) => { e.stopPropagation(); developManager.curves = { master: [], red: [], green: [], blue: [] }; }}
+            onclick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              if (curvesHasChanges()) {
+                developManager.curves = { master: [], red: [], green: [], blue: [] };
+                developManager.curveEndpoints = {
+                  master: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+                  red: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+                  green: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+                  blue: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+                };
+              }
+            }}
           >↺</button>
           <span class="chevron" class:collapsed={collapsed.curves}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
@@ -300,7 +312,7 @@
           class="section-reset"
           class:has-changes={Object.values(developManager.colorWheels).some(w => w.hue !== 0 || w.sat !== 0 || w.lum !== 0)}
           title="Reset Color Grading"
-          onclick={(e) => { e.stopPropagation(); developManager.colorWheels = { shadows: { hue: 0, sat: 0, lum: 0 }, midtones: { hue: 0, sat: 0, lum: 0 }, highlights: { hue: 0, sat: 0, lum: 0 } }; }}
+          onclick={(e) => { e.stopPropagation(); e.preventDefault(); developManager.colorWheels = { shadows: { hue: 0, sat: 0, lum: 0 }, midtones: { hue: 0, sat: 0, lum: 0 }, highlights: { hue: 0, sat: 0, lum: 0 } }; }}
         >↺</button>
         <span class="chevron" class:collapsed={collapsed.colorWheels}>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
@@ -325,7 +337,7 @@
           class="section-reset"
           class:has-changes={hslHasChanges()}
           title="Reset HSL"
-          onclick={(e) => { e.stopPropagation(); for (const ch of Object.keys(developManager.hsl)) { (developManager.hsl as any)[ch] = { h: 0, s: 0, l: 0 }; } }}
+          onclick={(e) => { e.stopPropagation(); e.preventDefault(); for (const ch of Object.keys(developManager.hsl)) { (developManager.hsl as any)[ch] = { h: 0, s: 0, l: 0 }; } }}
         >↺</button>
         <span class="chevron" class:collapsed={collapsed.hsl}>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
@@ -499,7 +511,6 @@
     border: none;
     border-radius: 4px;
     cursor: default;
-    pointer-events: none;
     transition: color 0.15s, background 0.15s;
     padding: 0;
   }
@@ -507,7 +518,6 @@
   .section-reset.has-changes {
     color: #9ca3af;
     cursor: pointer;
-    pointer-events: auto;
   }
 
   .section-reset.has-changes:hover {
