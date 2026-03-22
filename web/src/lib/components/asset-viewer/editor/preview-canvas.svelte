@@ -1,5 +1,6 @@
 <script lang="ts">
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
+  import { buildCurveLUT as buildCurveLUTShared } from './develop-tool/curve-engine';
   
   interface Props {
     imageUrl: string;
@@ -86,6 +87,10 @@
       curves.green.length, curves.green.map(p => p.x + p.y).join(),
       curves.blue.length, curves.blue.map(p => p.x + p.y).join(),
     ];
+    // Deep-read endpoints too
+    const ep = developManager.curveEndpoints;
+    void [ep.master.black, ep.master.white, ep.red.black, ep.red.white,
+          ep.green.black, ep.green.white, ep.blue.black, ep.blue.white];
     // Deep-read HSL
     const hsl = developManager.hsl;
     const _trackHsl = Object.values(hsl).map(ch => `${ch.h}${ch.s}${ch.l}`).join();
@@ -143,11 +148,11 @@
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
         
-        // Build lookup tables for curves (including endpoints)
-        const masterLUT = buildCurveLUT(curves.master, ep.master);
-        const redLUT = buildCurveLUT(curves.red, ep.red);
-        const greenLUT = buildCurveLUT(curves.green, ep.green);
-        const blueLUT = buildCurveLUT(curves.blue, ep.blue);
+        // Build lookup tables for curves (shared monotone cubic hermite spline)
+        const masterLUT = buildCurveLUTShared(curves.master, ep.master);
+        const redLUT = buildCurveLUTShared(curves.red, ep.red);
+        const greenLUT = buildCurveLUTShared(curves.green, ep.green);
+        const blueLUT = buildCurveLUTShared(curves.blue, ep.blue);
         
         for (let i = 0; i < data.length; i += 4) {
           let r = data[i], g = data[i+1], b = data[i+2];
@@ -220,36 +225,7 @@
     return filters;
   }
   
-  // Build a 256-entry lookup table from curve control points
-  function buildCurveLUT(points: Array<{x: number, y: number}>, ep: {black: number, white: number} = {black: 0, white: 1}): Uint8Array {
-    const lut = new Uint8Array(256);
-    if (points.length === 0 && ep.black === 0 && ep.white === 1) {
-      // Identity
-      for (let i = 0; i < 256; i++) lut[i] = i;
-      return lut;
-    }
-    
-    const allPoints = [{ x: 0, y: ep.black }, ...points, { x: 1, y: ep.white }].sort((a, b) => a.x - b.x);
-    
-    for (let i = 0; i < 256; i++) {
-      const t = i / 255;
-      // Find the segment
-      let seg = 0;
-      for (let s = 0; s < allPoints.length - 1; s++) {
-        if (t >= allPoints[s].x && t <= allPoints[s + 1].x) {
-          seg = s;
-          break;
-        }
-      }
-      const p0 = allPoints[seg];
-      const p1 = allPoints[seg + 1];
-      const segT = p1.x === p0.x ? 0 : (t - p0.x) / (p1.x - p0.x);
-      // Linear interpolation for now (can upgrade to cubic hermite later)
-      const val = p0.y + segT * (p1.y - p0.y);
-      lut[i] = Math.max(0, Math.min(255, Math.round(val * 255)));
-    }
-    return lut;
-  }
+  // buildCurveLUT now imported from curve-engine.ts (shared monotone cubic hermite spline)
   
   // Apply per-channel HSL adjustments
   function applyHSL(r: number, g: number, b: number, hsl: typeof developManager.hsl): [number, number, number] {
