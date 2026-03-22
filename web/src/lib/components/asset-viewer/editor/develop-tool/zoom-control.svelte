@@ -113,15 +113,15 @@
 
   .dropdown {
     position: absolute;
-    bottom: 100%;
+    top: 100%;
     left: 0;
-    margin-bottom: 4px;
+    margin-top: 4px;
     background: #1f2937;
     border: 1px solid #374151;
     border-radius: 6px;
     padding: 4px 0;
     min-width: 140px;
-    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     z-index: 50;
   }
 
