@@ -2,6 +2,7 @@
   import { shortcut } from '$lib/actions/shortcut';
   import { editManager, EditToolType } from '$lib/managers/edit/edit-manager.svelte';
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
+  import ZoomControl from './develop-tool/zoom-control.svelte';
   import { websocketEvents } from '$lib/stores/websocket';
   import { getAssetEdits, type AssetResponseDto } from '@immich/sdk';
   import { Button, HStack, IconButton, toastManager } from '@immich/ui';
@@ -69,7 +70,12 @@
       />
       <p class="text-lg text-immich-fg dark:text-immich-dark-fg capitalize">{$t('editor')}</p>
     </HStack>
-    <Button shape="round" size="small" onclick={applyEdits} loading={editManager.isApplyingEdits}>{$t('save')}</Button>
+    <HStack gap={2}>
+      {#if editManager.selectedTool?.type === EditToolType.Develop}
+        <ZoomControl />
+      {/if}
+      <Button shape="round" size="small" onclick={applyEdits} loading={editManager.isApplyingEdits}>{$t('save')}</Button>
+    </HStack>
   </HStack>
 
   <!-- Tool Tabs -->
