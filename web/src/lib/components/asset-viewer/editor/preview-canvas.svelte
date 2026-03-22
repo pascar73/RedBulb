@@ -279,6 +279,49 @@
   }
   
   // Per-pixel processing (curves, HSL, color grading) is now in preview-worker.ts
+
+  // ── Grain overlay ──
+  let grainCanvas = $state<HTMLCanvasElement | undefined>(undefined);
+  let lastGrainFrame = 0;
+
+  function renderGrain(amount: number) {
+    if (!grainCanvas || !canvas) return;
+    grainCanvas.width = Math.round(canvas.clientWidth / 2); // Half-res for perf
+    grainCanvas.height = Math.round(canvas.clientHeight / 2);
+    const ctx = grainCanvas.getContext('2d');
+    if (!ctx) return;
+    const w = grainCanvas.width, h = grainCanvas.height;
+    const imgData = ctx.createImageData(w, h);
+    const d = imgData.data;
+    // Fast pseudo-random grain
+    let seed = (lastGrainFrame * 1664525 + 1013904223) & 0xFFFFFFFF;
+    for (let i = 0; i < d.length; i += 4) {
+      seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+      const noise = ((seed >> 16) & 0xFF);
+      d[i] = noise;
+      d[i + 1] = noise;
+      d[i + 2] = noise;
+      d[i + 3] = Math.round(amount * 80); // Grain intensity
+    }
+    ctx.putImageData(imgData, 0, 0);
+    lastGrainFrame++;
+  }
+
+  // Animate grain (subtle flicker like real film)
+  $effect(() => {
+    const amount = developManager.grain;
+    if (amount <= 0) return;
+    let animId: number;
+    let frameCount = 0;
+    const tick = () => {
+      frameCount++;
+      // Update grain every 3 frames (~20fps) for film-like flicker
+      if (frameCount % 3 === 0) renderGrain(amount);
+      animId = requestAnimationFrame(tick);
+    };
+    animId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animId);
+  });
 </script>
 
 <canvas
@@ -289,6 +332,28 @@
   style:display={developManager.hasChanges || developManager.eyedropperActive ? 'block' : 'none'}
   onclick={handleEyedropperClick}
 ></canvas>
+
+<!-- Vignette overlay (CSS radial-gradient, GPU-accelerated) -->
+{#if developManager.vignette > 0}
+  <div
+    class="absolute inset-0 w-full h-full pointer-events-none rounded"
+    style="background: radial-gradient(ellipse at center,
+      transparent {100 - developManager.vignette * 80}%,
+      rgba(0,0,0,{developManager.vignette * 0.85}) 100%);
+      mix-blend-mode: multiply;"
+  ></div>
+{/if}
+
+<!-- Grain overlay (animated noise canvas) -->
+{#if developManager.grain > 0}
+  <canvas
+    bind:this={grainCanvas}
+    class="absolute inset-0 w-full h-full pointer-events-none"
+    style="mix-blend-mode: overlay; opacity: {developManager.grain * 0.6};
+      image-rendering: pixelated; object-fit: cover;"
+  ></canvas>
+{/if}
+
 {#if isProcessing}
   <div class="absolute top-2 left-2 text-xs text-white bg-black/50 px-2 py-1 rounded pointer-events-none">
     Processing...

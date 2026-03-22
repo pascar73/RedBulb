@@ -81,7 +81,7 @@
   const basicSliders = lightSliders;
   const toneSliders: SliderConfig[] = [];
 
-  const disabledSliders = new Set(['vignette', 'grain']);
+  const disabledSliders = new Set<string>();
 
   // Pop-out state for curves/scopes
   let curvesPoppedOut = $state(false);
