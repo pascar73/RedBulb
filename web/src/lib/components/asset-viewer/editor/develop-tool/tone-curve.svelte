@@ -596,9 +596,6 @@
     </div>
   </div>
 
-  <div class="text-xs text-gray-400">
-    Click to add control points • Drag to adjust • Double-click to remove
-  </div>
 </div>
 
 <style>
