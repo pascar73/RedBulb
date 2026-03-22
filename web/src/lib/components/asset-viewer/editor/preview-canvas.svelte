@@ -1,5 +1,6 @@
 <script lang="ts">
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
+  import { assetViewerManager } from '$lib/managers/asset-viewer-manager.svelte';
   import { buildCurveLUT as buildCurveLUTShared } from './develop-tool/curve-engine';
   import PreviewWorker from './preview-worker?worker';
   
@@ -12,6 +13,13 @@
   let { imageUrl, width, height }: Props = $props();
   let canvas = $state<HTMLCanvasElement | undefined>(undefined);
   let isProcessing = $state(false);
+
+  // Follow the zoom transform applied by @zoom-image/core to the <img> element
+  const zoomTransform = $derived.by(() => {
+    const { currentZoom, currentPositionX, currentPositionY } = assetViewerManager.zoomState;
+    if (currentZoom === 1 && currentPositionX === 0 && currentPositionY === 0) return '';
+    return `transform-origin: 0 0; transform: translate(${currentPositionX}px, ${currentPositionY}px) scale(${currentZoom});`;
+  });
 
   // Store original (unmodified) image data for eyedropper sampling
   let originalImageData: ImageData | null = null;
@@ -382,48 +390,51 @@
   });
 </script>
 
-<canvas
-  bind:this={canvas}
-  class="absolute inset-0 w-full h-full object-contain"
-  class:pointer-events-none={!developManager.eyedropperActive}
-  class:cursor-crosshair={developManager.eyedropperActive}
-  style:display={developManager.hasChanges || developManager.eyedropperActive ? 'block' : 'none'}
-  onclick={handleEyedropperClick}
-></canvas>
-
-<!-- Vignette overlay (CSS radial-gradient, GPU-accelerated) -->
-{#if developManager.vignette !== 0}
-  {@const vig = developManager.vignette}
-  {@const mid = developManager.vignetteMidpoint}
-  {@const round = developManager.vignetteRoundness}
-  {@const feather = developManager.vignetteFeather}
-  {@const isDark = vig < 0}
-  {@const amount = Math.abs(vig)}
-  {@const color = isDark ? '0,0,0' : '255,255,255'}
-  {@const innerStop = Math.max(5, mid - feather * 0.4)}
-  {@const outerStop = Math.min(100, mid + feather * 0.5)}
-  {@const rx = 50 + round * 0.3}
-  {@const ry = 50 - round * 0.3}
-  <div
-    class="absolute inset-0 w-full h-full pointer-events-none rounded"
-    style="background: radial-gradient({rx}% {ry}% at center,
-      transparent {innerStop}%,
-      rgba({color},{amount * 0.85}) {outerStop}%);
-      mix-blend-mode: {isDark ? 'multiply' : 'screen'};"
-  ></div>
-{/if}
-
-<!-- Grain overlay (animated noise canvas) -->
-{#if developManager.grain > 0}
+<!-- Wrapper follows the same zoom transform as the <img> element -->
+<div class="absolute inset-0 w-full h-full" style={zoomTransform}>
   <canvas
-    bind:this={grainCanvas}
-    class="absolute inset-0 w-full h-full pointer-events-none"
-    style="mix-blend-mode: overlay; opacity: {developManager.grain * 0.7};"
+    bind:this={canvas}
+    class="absolute inset-0 w-full h-full object-contain"
+    class:pointer-events-none={!developManager.eyedropperActive}
+    class:cursor-crosshair={developManager.eyedropperActive}
+    style:display={developManager.hasChanges || developManager.eyedropperActive ? 'block' : 'none'}
+    onclick={handleEyedropperClick}
   ></canvas>
-{/if}
 
-{#if isProcessing}
-  <div class="absolute top-2 left-2 text-xs text-white bg-black/50 px-2 py-1 rounded pointer-events-none">
-    Processing...
-  </div>
-{/if}
+  <!-- Vignette overlay (CSS radial-gradient, GPU-accelerated) -->
+  {#if developManager.vignette !== 0}
+    {@const vig = developManager.vignette}
+    {@const mid = developManager.vignetteMidpoint}
+    {@const round = developManager.vignetteRoundness}
+    {@const feather = developManager.vignetteFeather}
+    {@const isDark = vig < 0}
+    {@const amount = Math.abs(vig)}
+    {@const color = isDark ? '0,0,0' : '255,255,255'}
+    {@const innerStop = Math.max(5, mid - feather * 0.4)}
+    {@const outerStop = Math.min(100, mid + feather * 0.5)}
+    {@const rx = 50 + round * 0.3}
+    {@const ry = 50 - round * 0.3}
+    <div
+      class="absolute inset-0 w-full h-full pointer-events-none rounded"
+      style="background: radial-gradient({rx}% {ry}% at center,
+        transparent {innerStop}%,
+        rgba({color},{amount * 0.85}) {outerStop}%);
+        mix-blend-mode: {isDark ? 'multiply' : 'screen'};"
+    ></div>
+  {/if}
+
+  <!-- Grain overlay (static noise canvas) -->
+  {#if developManager.grain > 0}
+    <canvas
+      bind:this={grainCanvas}
+      class="absolute inset-0 w-full h-full pointer-events-none"
+      style="mix-blend-mode: overlay; opacity: {developManager.grain * 0.7};"
+    ></canvas>
+  {/if}
+
+  {#if isProcessing}
+    <div class="absolute top-2 left-2 text-xs text-white bg-black/50 px-2 py-1 rounded pointer-events-none">
+      Processing...
+    </div>
+  {/if}
+</div>
