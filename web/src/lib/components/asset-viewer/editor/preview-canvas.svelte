@@ -89,8 +89,10 @@
     ];
     // Deep-read endpoints too
     const ep = developManager.curveEndpoints;
-    void [ep.master.black, ep.master.white, ep.red.black, ep.red.white,
-          ep.green.black, ep.green.white, ep.blue.black, ep.blue.white];
+    void [ep.master.black.x, ep.master.black.y, ep.master.white.x, ep.master.white.y,
+          ep.red.black.x, ep.red.black.y, ep.red.white.x, ep.red.white.y,
+          ep.green.black.x, ep.green.black.y, ep.green.white.x, ep.green.white.y,
+          ep.blue.black.x, ep.blue.black.y, ep.blue.white.x, ep.blue.white.y];
     // Deep-read HSL
     const hsl = developManager.hsl;
     const _trackHsl = Object.values(hsl).map(ch => `${ch.h}${ch.s}${ch.l}`).join();
@@ -141,7 +143,7 @@
       const hsl = developManager.hsl;
       const ep = developManager.curveEndpoints;
       const hasCurves = Object.values(curves).some(ch => ch.length > 0);
-      const hasEndpoints = Object.values(ep).some(e => e.black !== 0 || e.white !== 1);
+      const hasEndpoints = Object.values(ep).some(e => e.black.x !== 0 || e.black.y !== 0 || e.white.x !== 1 || e.white.y !== 1);
       const hasHSL = Object.values(hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0);
       
       if (hasCurves || hasEndpoints || hasHSL) {

@@ -5,7 +5,7 @@
  */
 
 export type CurvePoint = { x: number; y: number };
-export type Endpoints = { black: number; white: number };
+export type Endpoints = { black: { x: number; y: number }; white: { x: number; y: number } };
 
 /**
  * Build the full sorted point array including endpoints.
@@ -14,12 +14,12 @@ export type Endpoints = { black: number; white: number };
  */
 export function buildAllPoints(
   points: CurvePoint[],
-  ep: Endpoints = { black: 0, white: 1 },
+  ep: Endpoints = { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
 ): CurvePoint[] {
   return [
-    { x: ep.black, y: 0 },
+    { x: ep.black.x, y: ep.black.y },
     ...points,
-    { x: ep.white, y: 1 },
+    { x: ep.white.x, y: ep.white.y },
   ].sort((a, b) => a.x - b.x);
 }
 
@@ -119,12 +119,12 @@ function evalSpline(pts: CurvePoint[], tangents: number[], t: number): number {
  */
 export function buildCurveLUT(
   points: CurvePoint[],
-  ep: Endpoints = { black: 0, white: 1 },
+  ep: Endpoints = { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
 ): Uint8Array {
   const lut = new Uint8Array(256);
 
   // Fast path: identity
-  if (points.length === 0 && ep.black === 0 && ep.white === 1) {
+  if (points.length === 0 && ep.black.x === 0 && ep.black.y === 0 && ep.white.x === 1 && ep.white.y === 1) {
     for (let i = 0; i < 256; i++) lut[i] = i;
     return lut;
   }
@@ -148,7 +148,7 @@ export function buildCurveLUT(
  */
 export function buildCurveSVGPath(
   points: CurvePoint[],
-  ep: Endpoints = { black: 0, white: 1 },
+  ep: Endpoints = { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
   size: number = 256,
 ): string {
   const allPts = buildAllPoints(points, ep);
@@ -192,8 +192,7 @@ export class LUTCache {
   private cache = new Map<string, Uint8Array>();
 
   private key(points: CurvePoint[], ep: Endpoints): string {
-    // Simple fast key — works because values are small floats
-    let k = `${ep.black.toFixed(4)},${ep.white.toFixed(4)}`;
+    let k = `${ep.black.x.toFixed(4)},${ep.black.y.toFixed(4)}|${ep.white.x.toFixed(4)},${ep.white.y.toFixed(4)}`;
     for (const p of points) k += `|${p.x.toFixed(4)},${p.y.toFixed(4)}`;
     return k;
   }

@@ -17,10 +17,10 @@ class DevelopManager implements EditToolManager {
 
   // Curve endpoints (black point / white point per channel)
   curveEndpoints = $state({
-    master: { black: 0, white: 1 },
-    red: { black: 0, white: 1 },
-    green: { black: 0, white: 1 },
-    blue: { black: 0, white: 1 },
+    master: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+    red: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+    green: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+    blue: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
   });
 
   // Eyedropper mode — when true, clicking the photo samples WB
@@ -106,7 +106,7 @@ class DevelopManager implements EditToolManager {
 
     // Check curve endpoints
     const hasEndpointChanges = Object.values(this.curveEndpoints).some(
-      ep => ep.black !== 0 || ep.white !== 1
+      ep => ep.black.x !== 0 || ep.black.y !== 0 || ep.white.x !== 1 || ep.white.y !== 1
     );
 
     // Check HSL (any channel has non-zero values)
@@ -183,10 +183,10 @@ class DevelopManager implements EditToolManager {
     this.curves.blue = [];
 
     // Reset curve endpoints
-    this.curveEndpoints.master = { black: 0, white: 1 };
-    this.curveEndpoints.red = { black: 0, white: 1 };
-    this.curveEndpoints.green = { black: 0, white: 1 };
-    this.curveEndpoints.blue = { black: 0, white: 1 };
+    this.curveEndpoints.master = { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } };
+    this.curveEndpoints.red = { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } };
+    this.curveEndpoints.green = { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } };
+    this.curveEndpoints.blue = { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } };
 
     this.eyedropperActive = false;
 
@@ -330,10 +330,11 @@ class DevelopManager implements EditToolManager {
 
     // Curve endpoints
     if (d.curveEndpoints) {
-      this.curveEndpoints.master = d.curveEndpoints.master ?? { black: 0, white: 1 };
-      this.curveEndpoints.red = d.curveEndpoints.red ?? { black: 0, white: 1 };
-      this.curveEndpoints.green = d.curveEndpoints.green ?? { black: 0, white: 1 };
-      this.curveEndpoints.blue = d.curveEndpoints.blue ?? { black: 0, white: 1 };
+      const defEp = { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } };
+      this.curveEndpoints.master = d.curveEndpoints.master ?? defEp;
+      this.curveEndpoints.red = d.curveEndpoints.red ?? defEp;
+      this.curveEndpoints.green = d.curveEndpoints.green ?? defEp;
+      this.curveEndpoints.blue = d.curveEndpoints.blue ?? defEp;
     }
 
     // Color wheels

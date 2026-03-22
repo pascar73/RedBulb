@@ -123,10 +123,10 @@
     return developManager.curveEndpoints[activeChannel];
   }
 
-  function setEndpoint(channel: Channel, point: 'black' | 'white', value: number) {
+  function setEndpoint(channel: Channel, point: 'black' | 'white', x: number, y: number) {
     developManager.curveEndpoints[channel] = {
       ...developManager.curveEndpoints[channel],
-      [point]: value,
+      [point]: { x, y },
     };
   }
 
@@ -182,10 +182,10 @@
     ];
     const ep = developManager.curveEndpoints;
     void [
-      ep.master.black, ep.master.white,
-      ep.red.black, ep.red.white,
-      ep.green.black, ep.green.white,
-      ep.blue.black, ep.blue.white,
+      ep.master.black.x, ep.master.black.y, ep.master.white.x, ep.master.white.y,
+      ep.red.black.x, ep.red.black.y, ep.red.white.x, ep.red.white.y,
+      ep.green.black.x, ep.green.black.y, ep.green.white.x, ep.green.white.y,
+      ep.blue.black.x, ep.blue.black.y, ep.blue.white.x, ep.blue.white.y,
     ];
     if (hasImageData) requestScopeUpdate();
   });
@@ -246,7 +246,7 @@
 
     // Check proximity to existing points (including endpoints)
     const ep = getEp();
-    const allPts = [{ x: ep.black, y: 0 }, ...points, { x: ep.white, y: 1 }];
+    const allPts = [{ x: ep.black.x, y: ep.black.y }, ...points, { x: ep.white.x, y: ep.white.y }];
     const tooClose = allPts.some(p => {
       const dx = (p.x - x) * SVG_SIZE, dy = (p.y - y) * SVG_SIZE;
       return Math.sqrt(dx * dx + dy * dy) < pointRadius * 2;
@@ -284,7 +284,8 @@
   function handleEndpointDblClick(which: 'black' | 'white', e: MouseEvent) {
     e.stopPropagation(); e.preventDefault();
     pointClicked = true;
-    setEndpoint(activeChannel, which, which === 'black' ? 0 : 1);
+    if (which === 'black') setEndpoint(activeChannel, 'black', 0, 0);
+    else setEndpoint(activeChannel, 'white', 1, 1);
   }
 
   function updateDragPosition(clientX: number, clientY: number) {
@@ -292,15 +293,17 @@
     const rect = svgElement.getBoundingClientRect();
     const y = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
 
-    // Endpoints slide along x axis (black along bottom, white along top)
+    // Endpoints: free 2D movement (like DaVinci Resolve)
+    // Black point: x clamp [0, 0.99], y clamp [0, 1]
+    // White point: x clamp [0.01, 1], y clamp [0, 1]
     if (draggingEndpoint === -1) {
       const x = Math.max(0, Math.min(0.99, (clientX - rect.left) / rect.width));
-      setEndpoint(activeChannel, 'black', x);
+      setEndpoint(activeChannel, 'black', x, y);
       return;
     }
     if (draggingEndpoint === -2) {
       const x = Math.max(0.01, Math.min(1, (clientX - rect.left) / rect.width));
-      setEndpoint(activeChannel, 'white', x);
+      setEndpoint(activeChannel, 'white', x, y);
       return;
     }
     if (draggingIndex === null) return;
@@ -506,30 +509,30 @@
       <!-- Active curve (same spline as LUT) -->
       <path d={getCurvePath()} stroke={channelColor(activeChannel)} stroke-width={strokeScale * 2} fill="none" />
 
-      <!-- Black point endpoint — slides along bottom edge (y=0) -->
+      <!-- Black point endpoint — free 2D movement -->
       <circle
-        cx={getEp().black * SVG_SIZE}
-        cy={SVG_SIZE - pointRadius * 0.8}
+        cx={getEp().black.x * SVG_SIZE}
+        cy={(1 - getEp().black.y) * SVG_SIZE}
         r={pointRadius}
-        fill={getEp().black !== 0 ? channelColor(activeChannel) : 'rgba(128,128,128,0.3)'}
+        fill={(getEp().black.x !== 0 || getEp().black.y !== 0) ? channelColor(activeChannel) : 'rgba(128,128,128,0.3)'}
         stroke={channelColor(activeChannel)}
         stroke-width={strokeScale * 1.5}
-        role="slider" aria-label="Black point" aria-valuenow={Math.round(getEp().black * 100)}
-        class="cursor-ew-resize"
+        role="slider" aria-label="Black point"
+        class="cursor-move"
         onmousedown={(e) => handleEndpointDown(-1, e)}
         ontouchstart={(e) => handleEndpointDown(-1, e)}
         ondblclick={(e) => handleEndpointDblClick('black', e)}
       />
-      <!-- White point endpoint — slides along top edge (y=1) -->
+      <!-- White point endpoint — free 2D movement -->
       <circle
-        cx={getEp().white * SVG_SIZE}
-        cy={pointRadius * 0.8}
+        cx={getEp().white.x * SVG_SIZE}
+        cy={(1 - getEp().white.y) * SVG_SIZE}
         r={pointRadius}
-        fill={getEp().white !== 1 ? channelColor(activeChannel) : 'rgba(128,128,128,0.3)'}
+        fill={(getEp().white.x !== 1 || getEp().white.y !== 1) ? channelColor(activeChannel) : 'rgba(128,128,128,0.3)'}
         stroke={channelColor(activeChannel)}
         stroke-width={strokeScale * 1.5}
-        role="slider" aria-label="White point" aria-valuenow={Math.round(getEp().white * 100)}
-        class="cursor-ew-resize"
+        role="slider" aria-label="White point"
+        class="cursor-move"
         onmousedown={(e) => handleEndpointDown(-2, e)}
         ontouchstart={(e) => handleEndpointDown(-2, e)}
         ondblclick={(e) => handleEndpointDblClick('white', e)}
