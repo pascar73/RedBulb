@@ -11,7 +11,7 @@
   let { title, onClose, children, footer }: Props = $props();
 
   // Position & size state (aspect ratio locked)
-  const CHROME_H = 110; // title bar + footer + channel tabs + dropdown + instructions
+  const CHROME_H = 120; // title bar + footer + channel tabs + dropdown + instructions
   const ASPECT = 1; // square scope area
   let panelX = $state(80);
   let panelY = $state(80);
