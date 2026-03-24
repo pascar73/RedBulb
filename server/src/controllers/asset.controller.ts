@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Endpoint, HistoryBuilder } from 'src/decorators';
 import { AssetResponseDto } from 'src/dtos/asset-response.dto';
@@ -20,6 +20,12 @@ import {
   UpdateAssetDto,
 } from 'src/dtos/asset.dto';
 import { AuthDto } from 'src/dtos/auth.dto';
+import {
+  CreateDevelopHistoryDto,
+  DevelopHistoryListResponseDto,
+  DevelopHistoryResponseDto,
+  RestoreDevelopHistoryDto,
+} from 'src/dtos/develop-history.dto';
 import { AssetEditsCreateDto, AssetEditsResponseDto } from 'src/dtos/editing.dto';
 import { AssetOcrResponseDto } from 'src/dtos/ocr.dto';
 import { ApiTag, Permission, RouteKey } from 'src/enum';
@@ -264,5 +270,119 @@ export class AssetController {
   })
   removeAssetEdits(@Auth() auth: AuthDto, @Param() { id }: UUIDParamDto): Promise<void> {
     return this.service.removeAssetEdits(auth, id);
+  }
+
+  // ── Develop History (Versioning) ──────────────────────────────────
+
+  @Get(':id/develop-history')
+  @Authenticated()
+  @Endpoint({
+    summary: 'List develop edit history for an asset',
+    description: 'Returns all saved versions of develop adjustments (exposure, curves, color grading, etc.) for the specified asset.',
+  })
+  getDevelopHistory(@Auth() auth: AuthDto, @Param() { id }: UUIDParamDto): Promise<DevelopHistoryListResponseDto> {
+    return this.service.getDevelopHistory(auth, id);
+  }
+
+  @Get(':id/develop-history/current')
+  @Authenticated()
+  @Endpoint({
+    summary: 'Get current develop state for an asset',
+    description: 'Returns the full state of the currently active develop version, or null if no versions exist.',
+  })
+  getDevelopHistoryCurrent(@Auth() auth: AuthDto, @Param() { id }: UUIDParamDto): Promise<DevelopHistoryResponseDto | null> {
+    return this.service.getDevelopHistoryCurrent(auth, id);
+  }
+
+  @Get(':id/develop-history/:version')
+  @Authenticated()
+  @Endpoint({
+    summary: 'Get a specific develop version',
+    description: 'Returns the full state (including all adjustment parameters) for a specific version number.',
+  })
+  getDevelopHistoryVersion(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Param('version') version: string,
+  ): Promise<DevelopHistoryResponseDto> {
+    return this.service.getDevelopHistoryVersion(auth, id, Number.parseInt(version, 10));
+  }
+
+  @Get(':id/develop-history/:version/thumbnail')
+  @Authenticated()
+  @Endpoint({
+    summary: 'Get thumbnail for a develop version',
+    description: 'Returns the JPEG thumbnail image for a specific version, or 404 if none exists.',
+  })
+  async getDevelopHistoryThumbnail(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Param('version') version: string,
+  ) {
+    const thumbnail = await this.service.getDevelopHistoryThumbnail(auth, id, Number.parseInt(version, 10));
+    if (!thumbnail) {
+      throw new BadRequestException('No thumbnail for this version');
+    }
+    return thumbnail;
+  }
+
+  @Post(':id/develop-history')
+  @Authenticated()
+  @Endpoint({
+    summary: 'Save a new develop version',
+    description: 'Creates a new version entry with the full develop state snapshot. Automatically becomes the current version. Old auto-checkpoints are pruned when exceeding 30 versions.',
+  })
+  createDevelopHistory(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Body() dto: CreateDevelopHistoryDto,
+  ): Promise<DevelopHistoryResponseDto> {
+    return this.service.createDevelopHistoryVersion(auth, id, dto);
+  }
+
+  @Post(':id/develop-history/:version/restore')
+  @Authenticated()
+  @Endpoint({
+    summary: 'Restore a previous develop version',
+    description: 'Creates a new version with the state from the specified version, marking it as current. The original version is preserved.',
+  })
+  restoreDevelopHistory(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Param('version') version: string,
+    @Body() dto: RestoreDevelopHistoryDto,
+  ): Promise<DevelopHistoryResponseDto> {
+    return this.service.restoreDevelopHistoryVersion(auth, id, Number.parseInt(version, 10), dto);
+  }
+
+  @Put(':id/develop-history/:version/label')
+  @Authenticated()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Endpoint({
+    summary: 'Update the label of a develop version',
+    description: 'Renames a specific version entry.',
+  })
+  async updateDevelopHistoryLabel(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Param('version') version: string,
+    @Body() body: { label: string },
+  ): Promise<void> {
+    return this.service.updateDevelopHistoryLabel(auth, id, Number.parseInt(version, 10), body.label);
+  }
+
+  @Delete(':id/develop-history/:version')
+  @Authenticated()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Endpoint({
+    summary: 'Delete a specific develop version',
+    description: 'Removes a version from history. Cannot delete the current version — restore a different version first.',
+  })
+  deleteDevelopHistory(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Param('version') version: string,
+  ): Promise<void> {
+    return this.service.deleteDevelopHistoryVersion(auth, id, Number.parseInt(version, 10));
   }
 }

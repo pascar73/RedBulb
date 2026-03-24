@@ -21,6 +21,12 @@ import {
   mapStats,
 } from 'src/dtos/asset.dto';
 import { AuthDto } from 'src/dtos/auth.dto';
+import {
+  CreateDevelopHistoryDto,
+  DevelopHistoryListResponseDto,
+  DevelopHistoryResponseDto,
+  RestoreDevelopHistoryDto,
+} from 'src/dtos/develop-history.dto';
 import { AssetEditAction, AssetEditActionItem, AssetEditsCreateDto, AssetEditsResponseDto } from 'src/dtos/editing.dto';
 import { AssetOcrResponseDto } from 'src/dtos/ocr.dto';
 import {
@@ -628,5 +634,162 @@ export class AssetService extends BaseService {
 
     await this.assetEditRepository.replaceAll(id, []);
     await this.jobRepository.queue({ name: JobName.AssetEditThumbnailGeneration, data: { id } });
+  }
+
+  // ── Develop History (Versioning) ──────────────────────────────────
+
+  private mapDevelopHistoryRow(row: any): DevelopHistoryResponseDto {
+    return {
+      id: row.id,
+      assetId: row.assetId,
+      userId: row.userId,
+      version: row.version,
+      label: row.label,
+      state: typeof row.state === 'string' ? JSON.parse(row.state) : row.state,
+      isCurrent: row.isCurrent,
+      isAutoCheckpoint: row.isAutoCheckpoint,
+      hasThumbnail: row.thumbnail != null,
+      createdAt: row.createdAt?.toString?.() ?? row.createdAt,
+      updatedAt: row.updatedAt?.toString?.() ?? row.updatedAt,
+    };
+  }
+
+  async getDevelopHistory(auth: AuthDto, id: string): Promise<DevelopHistoryListResponseDto> {
+    await this.requireAccess({ auth, permission: Permission.AssetRead, ids: [id] });
+
+    const rows = await this.developHistoryRepository.getAllSummary(id);
+
+    return {
+      assetId: id,
+      total: rows.length,
+      versions: rows.map((row) => ({
+        ...row,
+        state: {},
+        hasThumbnail: false,
+        createdAt: row.createdAt?.toString?.() ?? (row.createdAt as any),
+        updatedAt: row.updatedAt?.toString?.() ?? (row.updatedAt as any),
+      })),
+    };
+  }
+
+  async getDevelopHistoryVersion(auth: AuthDto, id: string, version: number): Promise<DevelopHistoryResponseDto> {
+    await this.requireAccess({ auth, permission: Permission.AssetRead, ids: [id] });
+
+    const row = await this.developHistoryRepository.getByVersion(id, version);
+    if (!row) {
+      throw new BadRequestException(`Version ${version} not found for asset`);
+    }
+
+    return this.mapDevelopHistoryRow(row);
+  }
+
+  async getDevelopHistoryCurrent(auth: AuthDto, id: string): Promise<DevelopHistoryResponseDto | null> {
+    await this.requireAccess({ auth, permission: Permission.AssetRead, ids: [id] });
+
+    const row = await this.developHistoryRepository.getCurrent(id);
+    if (!row) {
+      return null;
+    }
+
+    return this.mapDevelopHistoryRow(row);
+  }
+
+  async createDevelopHistoryVersion(
+    auth: AuthDto,
+    id: string,
+    dto: CreateDevelopHistoryDto,
+  ): Promise<DevelopHistoryResponseDto> {
+    await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id] });
+
+    const asset = await this.assetRepository.getById(id);
+    if (!asset) {
+      throw new BadRequestException('Asset not found');
+    }
+
+    const nextVersion = await this.developHistoryRepository.getNextVersion(id);
+
+    let thumbnail: Buffer | null = null;
+    if (dto.thumbnailBase64) {
+      thumbnail = Buffer.from(dto.thumbnailBase64, 'base64');
+      // Enforce max 50KB for thumbnails
+      if (thumbnail.length > 50 * 1024) {
+        throw new BadRequestException('Thumbnail exceeds 50KB limit');
+      }
+    }
+
+    const row = await this.developHistoryRepository.create({
+      assetId: id,
+      userId: auth.user.id,
+      version: nextVersion,
+      label: dto.label ?? '',
+      state: dto.state,
+      isCurrent: true,
+      isAutoCheckpoint: dto.isAutoCheckpoint ?? false,
+      thumbnail,
+    });
+
+    return this.mapDevelopHistoryRow(row);
+  }
+
+  async restoreDevelopHistoryVersion(
+    auth: AuthDto,
+    id: string,
+    version: number,
+    dto: RestoreDevelopHistoryDto,
+  ): Promise<DevelopHistoryResponseDto> {
+    await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id] });
+
+    const existing = await this.developHistoryRepository.getByVersion(id, version);
+    if (!existing) {
+      throw new BadRequestException(`Version ${version} not found for asset`);
+    }
+
+    // Create a new version with the restored state (not overwrite the original)
+    const nextVersion = await this.developHistoryRepository.getNextVersion(id);
+
+    const row = await this.developHistoryRepository.create({
+      assetId: id,
+      userId: auth.user.id,
+      version: nextVersion,
+      label: dto.label ?? `Restored from v${version}`,
+      state: typeof existing.state === 'string' ? JSON.parse(existing.state as any) : existing.state,
+      isCurrent: true,
+      isAutoCheckpoint: false,
+      thumbnail: existing.thumbnail,
+    });
+
+    return this.mapDevelopHistoryRow(row);
+  }
+
+  async deleteDevelopHistoryVersion(auth: AuthDto, id: string, version: number): Promise<void> {
+    await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id] });
+
+    const existing = await this.developHistoryRepository.getByVersion(id, version);
+    if (!existing) {
+      throw new BadRequestException(`Version ${version} not found for asset`);
+    }
+
+    if (existing.isCurrent) {
+      throw new BadRequestException('Cannot delete the current version. Restore a different version first.');
+    }
+
+    await this.developHistoryRepository.deleteVersion(id, version);
+  }
+
+  async getDevelopHistoryThumbnail(auth: AuthDto, id: string, version: number): Promise<Buffer | null> {
+    await this.requireAccess({ auth, permission: Permission.AssetRead, ids: [id] });
+
+    return this.developHistoryRepository.getThumbnail(id, version);
+  }
+
+  async updateDevelopHistoryLabel(auth: AuthDto, id: string, version: number, label: string): Promise<void> {
+    await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id] });
+
+    const existing = await this.developHistoryRepository.getByVersion(id, version);
+    if (!existing) {
+      throw new BadRequestException(`Version ${version} not found for asset`);
+    }
+
+    await this.developHistoryRepository.updateLabel(id, version, label);
   }
 }
