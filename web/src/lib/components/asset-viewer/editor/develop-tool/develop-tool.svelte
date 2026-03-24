@@ -5,6 +5,7 @@
   import HslPanel from './hsl-panel.svelte';
   import ColorWheels from './color-wheels.svelte';
   import FloatingPanel from './floating-panel.svelte';
+  import HistoryPanel from './history-panel.svelte';
 
   let saveStatus = $state<'idle' | 'saved' | 'saving'>('idle');
   let saveTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -110,6 +111,7 @@
     hsl: true,
     detail: true,
     effects: true,
+    history: true,
   });
 
   function toggleSection(key: string) {
@@ -383,6 +385,25 @@
           <div class="sub-section-label">Grain</div>
           {@render sliderGroup(grainSliders, disabledSliders)}
         </div>
+      </div>
+    {/if}
+  </div>
+
+  <!-- HISTORY -->
+  <div class="section-card">
+    <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('history')}>
+      <span class="section-title">History</span>
+      <div class="section-header-right">
+        <span class="chevron" class:collapsed={collapsed.history}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </span>
+      </div>
+    </div>
+    {#if !collapsed.history}
+      <div class="section-content">
+        <HistoryPanel />
       </div>
     {/if}
   </div>
