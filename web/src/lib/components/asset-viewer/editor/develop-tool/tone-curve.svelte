@@ -523,16 +523,16 @@
   {/if}
 
   <!-- Curve editor -->
-  <div class="relative">
+  <div class="relative" style="overflow: visible;">
     <canvas bind:this={scopeCanvas} width={svgRenderedWidth} height={svgRenderedWidth}
       class="absolute inset-0 w-full h-full rounded"
       style="z-index: 0; pointer-events: none; opacity: 0.6; will-change: contents;" />
 
     <svg bind:this={svgElement}
       viewBox="0 0 {SVG_SIZE} {SVG_SIZE}"
-      class="w-full aspect-square rounded cursor-crosshair select-none"
+      class="w-full aspect-square cursor-crosshair select-none"
       role="img" aria-label="Tone curve editor"
-      style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.3); overflow: visible; will-change: contents; contain: layout style;"
+      style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.3); overflow: visible; will-change: contents;"
       onclick={handleSvgClick}
     >
       <!-- Grid (opacity controlled by graticule slider) -->
