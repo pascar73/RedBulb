@@ -149,7 +149,14 @@
   <div class="resize-edge edge-nw" onmousedown={(e) => startResize('nw', e)} ontouchstart={(e) => startResizeTouch('nw', e)}></div>
   <div class="resize-edge edge-ne" onmousedown={(e) => startResize('ne', e)} ontouchstart={(e) => startResizeTouch('ne', e)}></div>
   <div class="resize-edge edge-sw" onmousedown={(e) => startResize('sw', e)} ontouchstart={(e) => startResizeTouch('sw', e)}></div>
-  <div class="resize-edge edge-se" onmousedown={(e) => startResize('se', e)} ontouchstart={(e) => startResizeTouch('se', e)}></div>
+  <div class="resize-edge edge-se" onmousedown={(e) => startResize('se', e)} ontouchstart={(e) => startResizeTouch('se', e)}>
+    <!-- Visual resize grip icon -->
+    <svg class="resize-grip" width="12" height="12" viewBox="0 0 12 12">
+      <line x1="10" y1="2" x2="2" y2="10" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+      <line x1="10" y1="6" x2="6" y2="10" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+      <line x1="10" y1="10" x2="10" y2="10" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+    </svg>
+  </div>
 
   <!-- Title bar -->
   <div
@@ -248,9 +255,9 @@
 
   .panel-content {
     flex: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
     padding: 8px 10px;
+    min-height: 0; /* allow flex shrink below content height */
   }
 
   .footer-bar {
@@ -334,5 +341,14 @@
   .edge-nw { top: -3px; left: -3px; width: 12px; height: 12px; cursor: nw-resize; }
   .edge-ne { top: -3px; right: -3px; width: 12px; height: 12px; cursor: ne-resize; }
   .edge-sw { bottom: -3px; left: -3px; width: 12px; height: 12px; cursor: sw-resize; }
-  .edge-se { bottom: -3px; right: -3px; width: 12px; height: 12px; cursor: se-resize; }
+  .edge-se {
+    bottom: -2px; right: -2px; width: 18px; height: 18px; cursor: se-resize;
+    display: flex; align-items: flex-end; justify-content: flex-end;
+  }
+  .resize-grip {
+    pointer-events: none;
+    opacity: 0.6;
+    margin: 2px;
+  }
+  .edge-se:hover .resize-grip { opacity: 1; }
 </style>

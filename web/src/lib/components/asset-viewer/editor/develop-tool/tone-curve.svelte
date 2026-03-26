@@ -10,6 +10,7 @@
   let activeChannel = $state<Channel>('master');
   let draggingIndex = $state<number | null>(null);
   let draggingEndpoint = $state<number | null>(null); // -1 = black, -2 = white
+  let wasDragging = $state(false); // track if a drag actually occurred (prevents spurious CP creation)
   let pointClicked = $state(false);
   let svgElement = $state<SVGSVGElement | undefined>(undefined);
   let scopeCanvas = $state<HTMLCanvasElement | undefined>(undefined);
@@ -258,7 +259,8 @@
   // ══════════════════════════════════════════════════════════
 
   function handleSvgClick(event: MouseEvent) {
-    if (pointClicked) { pointClicked = false; return; }
+    // Block point creation if we just finished dragging or interacting with a point
+    if (pointClicked || wasDragging) { pointClicked = false; wasDragging = false; return; }
     const svg = event.currentTarget as SVGSVGElement;
     const rect = svg.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width;
@@ -313,6 +315,7 @@
 
   function updateDragPosition(clientX: number, clientY: number) {
     if (!svgElement) return;
+    wasDragging = true; // Flag that a real drag occurred
     const rect = svgElement.getBoundingClientRect();
     const y = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
 
@@ -349,12 +352,10 @@
       updateDragPosition(e.touches[0].clientX, e.touches[0].clientY);
     }
   }
-  // NOTE: mouseup fires BEFORE click. If we clear pointClicked here,
-  // the subsequent click handler won't know a drag just happened and
-  // will create a spurious new point on the diagonal.
-  // Fix: keep pointClicked = true on mouseup; clear it in the click handler instead.
+  // NOTE: mouseup fires BEFORE click in browser event order.
+  // wasDragging stays true through mouseup → click handler checks it → clears it.
   function handleMouseUp() { draggingIndex = null; draggingEndpoint = null; }
-  function handleTouchEnd() { draggingIndex = null; draggingEndpoint = null; pointClicked = false; }
+  function handleTouchEnd() { draggingIndex = null; draggingEndpoint = null; wasDragging = false; pointClicked = false; }
 
   // ══════════════════════════════════════════════════════════
   // Scope rendering — dispatched to Web Worker (off main thread)
