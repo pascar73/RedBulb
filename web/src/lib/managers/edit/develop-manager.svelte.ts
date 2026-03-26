@@ -32,6 +32,9 @@ class DevelopManager implements EditToolManager {
   clarity = $state(0);
   dehaze = $state(0);
 
+  // Lens corrections
+  caCorrection = $state(0);
+
   // Tone parameters
   vibrance = $state(0);
   tint = $state(0);
@@ -91,6 +94,7 @@ class DevelopManager implements EditToolManager {
       this.noiseReduction !== 0 ||
       this.clarity !== 0 ||
       this.dehaze !== 0 ||
+      this.caCorrection !== 0 ||
       this.vibrance !== 0 ||
       this.tint !== 0 ||
       this.texture !== 0 ||
@@ -150,6 +154,7 @@ class DevelopManager implements EditToolManager {
     noiseReduction: this.noiseReduction,
     clarity: this.clarity,
     dehaze: this.dehaze,
+    caCorrection: this.caCorrection,
     vibrance: this.vibrance,
     tint: this.tint,
     texture: this.texture,
@@ -191,6 +196,7 @@ class DevelopManager implements EditToolManager {
     this.noiseReduction = 0;
     this.clarity = 0;
     this.dehaze = 0;
+    this.caCorrection = 0;
     this.vibrance = 0;
     this.tint = 0;
     this.texture = 0;
@@ -296,6 +302,7 @@ class DevelopManager implements EditToolManager {
         noiseReduction: this.noiseReduction,
         clarity: this.clarity,
         dehaze: this.dehaze,
+        caCorrection: this.caCorrection,
       },
       effects: {
         texture: this.texture,
@@ -346,6 +353,7 @@ class DevelopManager implements EditToolManager {
       this.noiseReduction = d.details.noiseReduction ?? 0;
       this.clarity = d.details.clarity ?? 0;
       this.dehaze = d.details.dehaze ?? 0;
+      this.caCorrection = d.details.caCorrection ?? 0;
     }
 
     // Effects

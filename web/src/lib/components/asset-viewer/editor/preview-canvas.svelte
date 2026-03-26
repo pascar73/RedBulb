@@ -113,6 +113,13 @@
     developManager.eyedropperActive = false;
   }
   
+  /** Deterministic hash from string (for grain seed) */
+  function hashString(s: string): number {
+    let hash = 0;
+    for (let i = 0; i < s.length; i++) hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+    return Math.abs(hash) || 42;
+  }
+
   // Debounced render
   let renderTimeout: ReturnType<typeof setTimeout> | undefined;
   
@@ -201,8 +208,12 @@
       const hasEndpoints = Object.values(ep).some(e => e.black.x !== 0 || e.black.y !== 0 || e.white.x !== 1 || e.white.y !== 1);
       const hasHSL = Object.values(hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0);
       const hasColorGrading = Object.values(cw).some(w => w.hue !== 0 || w.sat !== 0 || w.lum !== 0);
+      const hasWorkerProcessing = hasCurves || hasEndpoints || hasHSL || hasColorGrading
+        || p.dehaze > 0.01 || Math.abs(p.clarity) > 0.01 || Math.abs(p.texture) > 0.01
+        || p.sharpness > 0.01 || p.noiseReduction > 0.01 || p.caCorrection > 0.01
+        || p.grain > 0.01;
       
-      if ((hasCurves || hasEndpoints || hasHSL || hasColorGrading) && previewWorker) {
+      if (hasWorkerProcessing && previewWorker) {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         
         // Build LUTs on main thread (fast — just 256-entry tables)
@@ -229,6 +240,19 @@
           greenLUT: gBuf,
           blueLUT: bBuf,
           hasCurves: hasCurves || hasEndpoints,
+          // darktable-ported modules
+          dehaze: p.dehaze,
+          clarity: p.clarity,
+          texture: p.texture,
+          sharpness: p.sharpness,
+          noiseReduction: p.noiseReduction,
+          caCorrection: p.caCorrection,
+          // Film grain (per-pixel in worker)
+          grain: p.grain,
+          grainSize: p.grainSize,
+          grainRoughness: p.grainRoughness,
+          grainSeed: hashString(imageUrl),
+          // HSL + color grading
           hsl: JSON.parse(JSON.stringify(hsl)),
           hasHSL,
           colorWheels: JSON.parse(JSON.stringify(cw)),
@@ -260,10 +284,9 @@
     // Vibrance
     saturate *= 1 + p.vibrance * 0.5;
     
-    // Clarity/dehaze
-    contrast *= 1 + p.clarity * 0.3;
-    contrast *= 1 + p.dehaze * 0.4;
-    saturate *= 1 + p.dehaze * 0.2;
+    // Clarity/dehaze — now handled by Web Worker (darktable algorithms)
+    // Only keep minimal contrast hint for CSS preview responsiveness
+    // (the real processing happens in the worker pipeline)
     
     // Fade
     if (p.fade > 0) {
@@ -280,114 +303,14 @@
     // Tint
     if (p.tint !== 0) filters += ` hue-rotate(${p.tint * 30}deg)`;
     
-    // Texture (mid-frequency detail — approximated via subtle contrast + sharpness)
-    // Positive = enhance texture, negative = smooth
-    if (p.texture > 0) {
-      contrast *= 1 + p.texture * 0.15;
-    } else if (p.texture < 0) {
-      // Negative texture = smoothing (slight blur + reduced local contrast)
-      filters += ` blur(${Math.abs(p.texture) * 0.3}px)`;
-    }
-
-    // Noise reduction
-    if (p.noiseReduction > 0) filters += ` blur(${p.noiseReduction * 0.5}px)`;
+    // Texture, sharpness, noise reduction — now handled by Web Worker (darktable algorithms)
+    // No more CSS blur() hacks
     
     return filters;
   }
   
-  // Per-pixel processing (curves, HSL, color grading) is now in preview-worker.ts
-
-  // ── Grain overlay (static film grain, seeded by image URL) ──
-  let grainCanvas = $state<HTMLCanvasElement | undefined>(undefined);
-
-  function renderGrain(amount: number, size: number, roughness: number) {
-    if (!grainCanvas || !canvas) return;
-
-    // Render grain at display resolution for quality
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    if (w <= 0 || h <= 0) return;
-    grainCanvas.width = w;
-    grainCanvas.height = h;
-
-    const ctx = grainCanvas.getContext('2d');
-    if (!ctx) return;
-    const imgData = ctx.createImageData(w, h);
-    const d = imgData.data;
-
-    // Deterministic seed from imageUrl (static grain for photos)
-    let seed = 0;
-    for (let i = 0; i < imageUrl.length; i++) seed = ((seed << 5) - seed + imageUrl.charCodeAt(i)) | 0;
-    seed = Math.abs(seed) || 42;
-
-    // Generate base noise at pixel level
-    const noiseData = new Float32Array(w * h);
-    for (let i = 0; i < noiseData.length; i++) {
-      seed = (seed * 1664525 + 1013904223) & 0x7FFFFFFF;
-      // Box-Muller for Gaussian noise (more film-like than uniform)
-      const u1 = ((seed >> 8) & 0xFFFF) / 65536;
-      seed = (seed * 1664525 + 1013904223) & 0x7FFFFFFF;
-      const u2 = ((seed >> 8) & 0xFFFF) / 65536;
-      noiseData[i] = Math.sqrt(-2 * Math.log(u1 + 0.0001)) * Math.cos(2 * Math.PI * u2);
-    }
-
-    // Size: blur the noise to create larger grain particles
-    // Size 1 = fine (no blur), Size 100 = very large grain (heavy blur)
-    if (size > 5) {
-      const radius = Math.round(size / 15); // 0-6 pixel blur radius
-      if (radius > 0) {
-        // Simple box blur for speed
-        const tmp = new Float32Array(noiseData.length);
-        // Horizontal pass
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            let sum = 0, count = 0;
-            for (let dx = -radius; dx <= radius; dx++) {
-              const nx = x + dx;
-              if (nx >= 0 && nx < w) { sum += noiseData[y * w + nx]; count++; }
-            }
-            tmp[y * w + x] = sum / count;
-          }
-        }
-        // Vertical pass
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            let sum = 0, count = 0;
-            for (let dy = -radius; dy <= radius; dy++) {
-              const ny = y + dy;
-              if (ny >= 0 && ny < h) { sum += tmp[ny * w + x]; count++; }
-            }
-            noiseData[y * w + x] = sum / count;
-          }
-        }
-      }
-    }
-
-    // Roughness: controls contrast of grain
-    // Low roughness = subtle, uniform. High roughness = harsh, clumpy
-    const roughMult = 0.5 + (roughness / 100) * 2; // 0.5x to 2.5x contrast
-
-    // Write to canvas
-    const alpha = Math.round(amount * 120);
-    for (let i = 0; i < noiseData.length; i++) {
-      const val = Math.max(0, Math.min(255, 128 + noiseData[i] * 40 * roughMult));
-      const idx = i * 4;
-      d[idx] = val;
-      d[idx + 1] = val;
-      d[idx + 2] = val;
-      d[idx + 3] = alpha;
-    }
-    ctx.putImageData(imgData, 0, 0);
-  }
-
-  // Re-render grain when params change (static — no animation)
-  $effect(() => {
-    const amount = developManager.grain;
-    const size = developManager.grainSize;
-    const roughness = developManager.grainRoughness;
-    if (amount <= 0) return;
-    renderGrain(amount, size, roughness);
-  });
+  // Per-pixel processing (curves, HSL, color grading, grain) is now in preview-worker.ts
+  // Film grain moved to worker pipeline (Module 5) — no more CSS overlay
 </script>
 
 <!-- Wrapper follows the same zoom transform as the <img> element -->
@@ -423,14 +346,7 @@
     ></div>
   {/if}
 
-  <!-- Grain overlay (static noise canvas) -->
-  {#if developManager.grain > 0}
-    <canvas
-      bind:this={grainCanvas}
-      class="absolute inset-0 w-full h-full pointer-events-none"
-      style="mix-blend-mode: overlay; opacity: {developManager.grain * 0.7};"
-    ></canvas>
-  {/if}
+  <!-- Grain now rendered per-pixel in Web Worker (Module 5) -->
 
   {#if isProcessing}
     <div class="absolute top-2 left-2 text-xs text-white bg-black/50 px-2 py-1 rounded pointer-events-none">

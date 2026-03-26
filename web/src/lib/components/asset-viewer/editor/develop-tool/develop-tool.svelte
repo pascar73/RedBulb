@@ -92,6 +92,11 @@
   // Combined for section reset detection
   const effectsSliders: SliderConfig[] = [...effectsTopSliders, ...vignetteSliders, ...grainSliders];
 
+  // --- LENS CORRECTIONS section ---
+  const lensSliders: SliderConfig[] = [
+    { label: 'CA Correction', key: 'caCorrection', min: 0, max: 1, step: 0.01 },
+  ];
+
   // Legacy aliases for template compatibility
   const basicSliders = lightSliders;
   const toneSliders: SliderConfig[] = [];
@@ -110,6 +115,7 @@
     colorWheels: false,
     hsl: true,
     detail: true,
+    lens: true,
     effects: true,
     history: true,
   });
@@ -365,6 +371,16 @@
     {#if !collapsed.detail}
       <div class="section-content">
         {@render sliderGroup(detailSliders)}
+      </div>
+    {/if}
+  </div>
+
+  <!-- LENS CORRECTIONS -->
+  <div class="section-card">
+    {@render sectionHeader('lens', 'Lens Corrections', lensSliders)}
+    {#if !collapsed.lens}
+      <div class="section-content">
+        {@render sliderGroup(lensSliders)}
       </div>
     {/if}
   </div>
