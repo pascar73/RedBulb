@@ -11,7 +11,7 @@
   let { title, onClose, children, footer }: Props = $props();
 
   // Position & size state (aspect ratio locked)
-  const CHROME_H = 120; // title bar + footer + channel tabs + dropdown + instructions
+  const CHROME_H = 160; // title bar (~32) + footer (~32) + channel tabs (~40) + scope controls (~28) + padding (~28)
   const ASPECT = 1; // square scope area
   let panelX = $state(80);
   let panelY = $state(80);
@@ -254,10 +254,12 @@
   }
 
   .panel-content {
-    flex: 1;
+    flex: 1 1 0;
     overflow: hidden;
     padding: 8px 10px;
     min-height: 0; /* allow flex shrink below content height */
+    display: flex;
+    flex-direction: column;
   }
 
   .footer-bar {

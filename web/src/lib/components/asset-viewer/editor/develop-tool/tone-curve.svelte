@@ -10,8 +10,9 @@
   let activeChannel = $state<Channel>('master');
   let draggingIndex = $state<number | null>(null);
   let draggingEndpoint = $state<number | null>(null); // -1 = black, -2 = white
-  let wasDragging = $state(false); // track if a drag actually occurred (prevents spurious CP creation)
-  let pointClicked = $state(false);
+  // Track SVG-level mousedown for clean click detection (no spurious CPs)
+  let svgMouseDownPos = $state<{ x: number; y: number } | null>(null);
+  let anyPointInteraction = $state(false); // set true when mousedown is on a point/endpoint
   let svgElement = $state<SVGSVGElement | undefined>(undefined);
   let scopeCanvas = $state<HTMLCanvasElement | undefined>(undefined);
 
@@ -258,11 +259,31 @@
   // Interaction handlers
   // ══════════════════════════════════════════════════════════
 
-  function handleSvgClick(event: MouseEvent) {
-    // Block point creation if we just finished dragging or interacting with a point
-    if (pointClicked || wasDragging) { pointClicked = false; wasDragging = false; return; }
-    const svg = event.currentTarget as SVGSVGElement;
-    const rect = svg.getBoundingClientRect();
+  // ── SVG mousedown: record position for click detection ──
+  function handleSvgMouseDown(event: MouseEvent) {
+    if (anyPointInteraction) return; // mousedown was on a point, not empty space
+    svgMouseDownPos = { x: event.clientX, y: event.clientY };
+  }
+
+  // ── SVG mouseup: only create a CP if this was a genuine click (no drag) ──
+  function handleSvgMouseUp(event: MouseEvent) {
+    // If any point/endpoint was being interacted with, skip
+    if (anyPointInteraction || draggingIndex !== null || draggingEndpoint !== null) {
+      svgMouseDownPos = null;
+      return;
+    }
+    // If no mousedown was recorded on the SVG background, skip
+    if (!svgMouseDownPos) return;
+
+    // Check if mouse barely moved (genuine click vs accidental drag)
+    const dx = event.clientX - svgMouseDownPos.x;
+    const dy = event.clientY - svgMouseDownPos.y;
+    svgMouseDownPos = null;
+    if (Math.sqrt(dx * dx + dy * dy) > 5) return; // moved too much — not a click
+
+    // Now safely add a control point
+    if (!svgElement) return;
+    const rect = svgElement.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width;
     const y = 1 - (event.clientY - rect.top) / rect.height;
 
@@ -273,8 +294,8 @@
     const ep = getEp();
     const allPts = [{ x: ep.black.x, y: ep.black.y }, ...points, { x: ep.white.x, y: ep.white.y }];
     const tooClose = allPts.some(p => {
-      const dx = (p.x - x) * SVG_SIZE, dy = (p.y - y) * SVG_SIZE;
-      return Math.sqrt(dx * dx + dy * dy) < pointRadius * 2;
+      const pdx = (p.x - x) * SVG_SIZE, pdy = (p.y - y) * SVG_SIZE;
+      return Math.sqrt(pdx * pdx + pdy * pdy) < pointRadius * 2;
     });
     if (tooClose) return;
 
@@ -283,32 +304,32 @@
 
   function handlePointMouseDown(index: number, e: MouseEvent) {
     e.stopPropagation(); e.preventDefault();
-    pointClicked = true;
+    anyPointInteraction = true;
     draggingIndex = index;
   }
 
   function handlePointTouchStart(index: number, e: TouchEvent) {
     e.stopPropagation(); e.preventDefault();
-    pointClicked = true;
+    anyPointInteraction = true;
     draggingIndex = index;
   }
 
   function handlePointDblClick(index: number, e: MouseEvent) {
     e.stopPropagation(); e.preventDefault();
-    pointClicked = true;
+    anyPointInteraction = true;
     draggingIndex = null;
     setPoints(getPoints().filter((_, i) => i !== index));
   }
 
   function handleEndpointDown(which: -1 | -2, e: MouseEvent | TouchEvent) {
     e.stopPropagation(); e.preventDefault();
-    pointClicked = true;
+    anyPointInteraction = true;
     draggingEndpoint = which;
   }
 
   function handleEndpointDblClick(which: 'black' | 'white', e: MouseEvent) {
     e.stopPropagation(); e.preventDefault();
-    pointClicked = true;
+    anyPointInteraction = true;
     if (which === 'black') setEndpoint(activeChannel, 'black', 0, 0);
     else setEndpoint(activeChannel, 'white', 1, 1);
   }
@@ -352,10 +373,18 @@
       updateDragPosition(e.touches[0].clientX, e.touches[0].clientY);
     }
   }
-  // NOTE: mouseup fires BEFORE click in browser event order.
-  // wasDragging stays true through mouseup → click handler checks it → clears it.
-  function handleMouseUp() { draggingIndex = null; draggingEndpoint = null; }
-  function handleTouchEnd() { draggingIndex = null; draggingEndpoint = null; wasDragging = false; pointClicked = false; }
+  function handleMouseUp() {
+    draggingIndex = null;
+    draggingEndpoint = null;
+    // Delay clearing anyPointInteraction so SVG mouseup handler can check it
+    requestAnimationFrame(() => { anyPointInteraction = false; });
+  }
+  function handleTouchEnd() {
+    draggingIndex = null;
+    draggingEndpoint = null;
+    anyPointInteraction = false;
+    svgMouseDownPos = null;
+  }
 
   // ══════════════════════════════════════════════════════════
   // Scope rendering — dispatched to Web Worker (off main thread)
@@ -452,7 +481,7 @@
   ontouchend={handleTouchEnd}
 />
 
-<div class="flex flex-col gap-2">
+<div class="flex flex-col gap-2" style="flex: 1 1 0; min-height: 0; overflow: hidden;">
   <!-- Channel tabs -->
   <div class="flex gap-1 p-1 bg-gray-800 rounded-lg">
     {#each channels as channel}
@@ -528,7 +557,7 @@
   {/if}
 
   <!-- Curve editor -->
-  <div class="relative" style="overflow: visible;">
+  <div class="relative" style="overflow: visible; flex: 1 1 0; min-height: 0;">
     <canvas bind:this={scopeCanvas} width={svgRenderedWidth} height={svgRenderedWidth}
       class="absolute inset-0 w-full h-full rounded"
       style="z-index: 0; pointer-events: none; opacity: 0.6; will-change: contents;" />
@@ -538,7 +567,8 @@
       class="w-full aspect-square cursor-crosshair select-none"
       role="img" aria-label="Tone curve editor"
       style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.3); overflow: visible; will-change: contents;"
-      onclick={handleSvgClick}
+      onmousedown={handleSvgMouseDown}
+      onmouseup={handleSvgMouseUp}
     >
       <!-- Grid (opacity controlled by graticule slider) -->
       {#each [0, 64, 128, 192, 256] as pos}
