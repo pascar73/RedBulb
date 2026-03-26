@@ -481,7 +481,7 @@
   ontouchend={handleTouchEnd}
 />
 
-<div class="flex flex-col gap-2" style="flex: 1 1 0; min-height: 0; overflow: hidden;">
+<div class="flex flex-col gap-2" style="flex: 1 1 auto; min-height: 0; overflow: hidden;">
   <!-- Channel tabs -->
   <div class="flex gap-1 p-1 bg-gray-800 rounded-lg">
     {#each channels as channel}
@@ -556,8 +556,8 @@
     </div>
   {/if}
 
-  <!-- Curve editor -->
-  <div class="relative" style="overflow: visible; flex: 1 1 0; min-height: 0;">
+  <!-- Curve editor — aspect-square ensures visibility in both inline and floating modes -->
+  <div class="relative aspect-square" style="overflow: visible; flex-shrink: 1; min-height: 100px;">
     <canvas bind:this={scopeCanvas} width={svgRenderedWidth} height={svgRenderedWidth}
       class="absolute inset-0 w-full h-full rounded"
       style="z-index: 0; pointer-events: none; opacity: 0.6; will-change: contents;" />
