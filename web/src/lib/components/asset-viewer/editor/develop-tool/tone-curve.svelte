@@ -12,7 +12,7 @@
   let draggingEndpoint = $state<number | null>(null); // -1 = black, -2 = white
   // Track SVG-level mousedown for clean click detection (no spurious CPs)
   let svgMouseDownPos = $state<{ x: number; y: number } | null>(null);
-  let anyPointInteraction = $state(false); // set true when mousedown is on a point/endpoint
+  let lastPointInteractionTime = 0; // timestamp of last point/endpoint mousedown
   let svgElement = $state<SVGSVGElement | undefined>(undefined);
   let scopeCanvas = $state<HTMLCanvasElement | undefined>(undefined);
 
@@ -261,14 +261,15 @@
 
   // ── SVG mousedown: record position for click detection ──
   function handleSvgMouseDown(event: MouseEvent) {
-    if (anyPointInteraction) return; // mousedown was on a point, not empty space
+    // If a point interaction just happened (<200ms ago), skip — this is bubbling from a CP
+    if (Date.now() - lastPointInteractionTime < 200) return;
     svgMouseDownPos = { x: event.clientX, y: event.clientY };
   }
 
   // ── SVG mouseup: only create a CP if this was a genuine click (no drag) ──
   function handleSvgMouseUp(event: MouseEvent) {
-    // If any point/endpoint was being interacted with, skip
-    if (anyPointInteraction || draggingIndex !== null || draggingEndpoint !== null) {
+    // If a point/endpoint interaction happened recently, or we're still dragging, skip
+    if (Date.now() - lastPointInteractionTime < 200 || draggingIndex !== null || draggingEndpoint !== null) {
       svgMouseDownPos = null;
       return;
     }
@@ -304,32 +305,32 @@
 
   function handlePointMouseDown(index: number, e: MouseEvent) {
     e.stopPropagation(); e.preventDefault();
-    anyPointInteraction = true;
+    lastPointInteractionTime = Date.now();
     draggingIndex = index;
   }
 
   function handlePointTouchStart(index: number, e: TouchEvent) {
     e.stopPropagation(); e.preventDefault();
-    anyPointInteraction = true;
+    lastPointInteractionTime = Date.now();
     draggingIndex = index;
   }
 
   function handlePointDblClick(index: number, e: MouseEvent) {
     e.stopPropagation(); e.preventDefault();
-    anyPointInteraction = true;
+    lastPointInteractionTime = Date.now();
     draggingIndex = null;
     setPoints(getPoints().filter((_, i) => i !== index));
   }
 
   function handleEndpointDown(which: -1 | -2, e: MouseEvent | TouchEvent) {
     e.stopPropagation(); e.preventDefault();
-    anyPointInteraction = true;
+    lastPointInteractionTime = Date.now();
     draggingEndpoint = which;
   }
 
   function handleEndpointDblClick(which: 'black' | 'white', e: MouseEvent) {
     e.stopPropagation(); e.preventDefault();
-    anyPointInteraction = true;
+    lastPointInteractionTime = Date.now();
     if (which === 'black') setEndpoint(activeChannel, 'black', 0, 0);
     else setEndpoint(activeChannel, 'white', 1, 1);
   }
@@ -376,13 +377,10 @@
   function handleMouseUp() {
     draggingIndex = null;
     draggingEndpoint = null;
-    // Delay clearing anyPointInteraction so SVG mouseup handler can check it
-    requestAnimationFrame(() => { anyPointInteraction = false; });
   }
   function handleTouchEnd() {
     draggingIndex = null;
     draggingEndpoint = null;
-    anyPointInteraction = false;
     svgMouseDownPos = null;
   }
 
@@ -556,17 +554,18 @@
     </div>
   {/if}
 
-  <!-- Curve editor — aspect-square ensures visibility in both inline and floating modes -->
-  <div class="relative aspect-square" style="overflow: visible; flex-shrink: 1; min-height: 100px;">
+  <!-- Curve editor — SVG drives the size, canvas matches exactly -->
+  <div class="relative" style="flex-shrink: 1;">
+    <!-- Scope canvas — absolutely positioned behind SVG, aspect-ratio locked to 1:1 -->
     <canvas bind:this={scopeCanvas} width={svgRenderedWidth} height={svgRenderedWidth}
-      class="absolute inset-0 w-full h-full rounded"
-      style="z-index: 0; pointer-events: none; opacity: 0.6; will-change: contents;" />
+      class="absolute top-0 left-0 w-full rounded"
+      style="z-index: 0; pointer-events: none; opacity: 0.6; will-change: contents; aspect-ratio: 1 / 1;" />
 
     <svg bind:this={svgElement}
       viewBox="0 0 {SVG_SIZE} {SVG_SIZE}"
-      class="w-full aspect-square cursor-crosshair select-none"
+      class="w-full cursor-crosshair select-none"
       role="img" aria-label="Tone curve editor"
-      style="touch-action: none; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.3); overflow: visible; will-change: contents;"
+      style="touch-action: none; display: block; position: relative; z-index: 1; background: rgba(23, 23, 23, 0.3); overflow: visible; will-change: contents; aspect-ratio: 1 / 1;"
       onmousedown={handleSvgMouseDown}
       onmouseup={handleSvgMouseUp}
     >
