@@ -349,7 +349,11 @@
       updateDragPosition(e.touches[0].clientX, e.touches[0].clientY);
     }
   }
-  function handleMouseUp() { draggingIndex = null; draggingEndpoint = null; pointClicked = false; }
+  // NOTE: mouseup fires BEFORE click. If we clear pointClicked here,
+  // the subsequent click handler won't know a drag just happened and
+  // will create a spurious new point on the diagonal.
+  // Fix: keep pointClicked = true on mouseup; clear it in the click handler instead.
+  function handleMouseUp() { draggingIndex = null; draggingEndpoint = null; }
   function handleTouchEnd() { draggingIndex = null; draggingEndpoint = null; pointClicked = false; }
 
   // ══════════════════════════════════════════════════════════
