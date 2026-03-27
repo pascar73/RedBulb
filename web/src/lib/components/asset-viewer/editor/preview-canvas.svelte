@@ -209,6 +209,7 @@
       const hasHSL = Object.values(hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0);
       const hasColorGrading = Object.values(cw).some(w => w.hue !== 0 || w.sat !== 0 || w.lum !== 0);
       const hasWorkerProcessing = hasCurves || hasEndpoints || hasHSL || hasColorGrading
+        || p.toneMapper === 'filmic'
         || p.dehaze > 0.01 || Math.abs(p.clarity) > 0.01 || Math.abs(p.texture) > 0.01
         || p.sharpness > 0.01 || p.noiseReduction > 0.01 || p.caCorrection > 0.01
         || p.grain > 0.01;
@@ -247,6 +248,8 @@
           sharpness: p.sharpness,
           noiseReduction: p.noiseReduction,
           caCorrection: p.caCorrection,
+          // Tone mapper
+          toneMapper: p.toneMapper,
           // Film grain (per-pixel in worker)
           grain: p.grain,
           grainSize: p.grainSize,

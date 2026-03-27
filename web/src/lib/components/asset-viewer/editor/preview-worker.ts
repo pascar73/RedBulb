@@ -32,6 +32,8 @@ export interface PreviewRequest {
   noiseReduction: number;    // 0-1
   // Chromatic aberration correction (darktable cacorrectrgb inspired)
   caCorrection: number;      // 0-1
+  // Tone mapper
+  toneMapper: 'none' | 'filmic'; // 'filmic' = AgX film-like
   // Film grain (darktable grain.c inspired — per-pixel in worker, not CSS overlay)
   grain: number;             // 0-1
   grainSize: number;         // 1-100
@@ -75,6 +77,11 @@ self.onmessage = (e: MessageEvent<PreviewRequest>) => {
       data[i + 1] = mL[gL[data[i + 1]]];
       data[i + 2] = mL[bL[data[i + 2]]];
     }
+  }
+
+  // ── Pipeline step 1b: Filmic tone map (AgX) ──
+  if (msg.toneMapper === 'filmic') {
+    applyFilmicToneMap(data, w, h);
   }
 
   // ── Pipeline step 2: Chromatic aberration correction ──
@@ -733,4 +740,117 @@ function applyColorGrading(
     Math.max(0, Math.min(255, Math.round(gOut))),
     Math.max(0, Math.min(255, Math.round(bOut))),
   ];
+}
+
+// ══════════════════════════════════════════════════════════════
+// FILMIC TONE MAP (AgX)
+// Ported from RapidRAW/src-tauri/src/shaders/shader.wgsl
+// Originally designed by Troy Sobotka — film-like tone mapping
+// that preserves hue in highlights better than ACES.
+//
+// Pipeline: sRGB → linear → AgX rendering space → log encode →
+//           sigmoid curve → gamma → back to sRGB working space
+// ══════════════════════════════════════════════════════════════
+
+// Pre-computed matrices: sRGB working space ↔ AgX rendering space
+// Derived from Rec.2020 primaries with inset/rotation per AgX spec
+const AGX_PIPE_TO_RENDERING = [
+  0.5682423423, 0.3731251305, 0.0586325272,
+  0.1281182380, 0.7783136231, 0.0935681389,
+  0.0734708103, 0.1620963130, 0.7644328768,
+]; // row-major 3x3
+
+const AGX_RENDERING_TO_PIPE = [
+  1.9404292234, -0.8296109104, -0.1108183130,
+  -0.2760032943, 1.3067333427, -0.0307300484,
+  -0.1438899609, -0.2248403195, 1.3687302804,
+]; // row-major 3x3
+
+const AGX_MIN_EV = -15.2;
+const AGX_MAX_EV = 5.0;
+const AGX_RANGE_EV = AGX_MAX_EV - AGX_MIN_EV;
+const AGX_GAMMA = 2.4;
+const AGX_SLOPE = 2.3843;
+const AGX_TOE_POWER = 1.5;
+const AGX_SHOULDER_POWER = 1.5;
+const AGX_TOE_TRANSITION_X = 0.6060606;
+const AGX_TOE_TRANSITION_Y = 0.43446;
+const AGX_SHOULDER_TRANSITION_X = 0.6060606;
+const AGX_SHOULDER_TRANSITION_Y = 0.43446;
+const AGX_INTERCEPT = -1.0112;
+const AGX_TOE_SCALE = -1.0359;
+const AGX_SHOULDER_SCALE = 1.3475;
+const AGX_EPSILON = 1e-6;
+
+function agxSigmoid(x: number, power: number): number {
+  return x / Math.pow(1.0 + Math.pow(x, power), 1.0 / power);
+}
+
+function agxScaledSigmoid(x: number, scale: number, slope: number, power: number, tx: number, ty: number): number {
+  return scale * agxSigmoid(slope * (x - tx) / scale, power) + ty;
+}
+
+function agxApplyCurveChannel(x: number): number {
+  let result: number;
+  if (x < AGX_TOE_TRANSITION_X) {
+    result = agxScaledSigmoid(x, AGX_TOE_SCALE, AGX_SLOPE, AGX_TOE_POWER, AGX_TOE_TRANSITION_X, AGX_TOE_TRANSITION_Y);
+  } else if (x <= AGX_SHOULDER_TRANSITION_X) {
+    result = AGX_SLOPE * x + AGX_INTERCEPT;
+  } else {
+    result = agxScaledSigmoid(x, AGX_SHOULDER_SCALE, AGX_SLOPE, AGX_SHOULDER_POWER, AGX_SHOULDER_TRANSITION_X, AGX_SHOULDER_TRANSITION_Y);
+  }
+  return Math.max(0, Math.min(1, result));
+}
+
+function mat3MulVec(m: number[], r: number, g: number, b: number): [number, number, number] {
+  return [
+    m[0] * r + m[1] * g + m[2] * b,
+    m[3] * r + m[4] * g + m[5] * b,
+    m[6] * r + m[7] * g + m[8] * b,
+  ];
+}
+
+// Reuses srgbToLinear() and linearToSrgb() from the OKLCh module above
+
+function applyFilmicToneMap(data: Uint8ClampedArray, w: number, h: number): void {
+  const len = w * h * 4;
+
+  for (let i = 0; i < len; i += 4) {
+    // 1. Decode sRGB → linear
+    let lr = srgbToLinear(data[i]);
+    let lg = srgbToLinear(data[i + 1]);
+    let lb = srgbToLinear(data[i + 2]);
+
+    // 2. Gamut compression — shift negative values
+    const minC = Math.min(lr, lg, lb);
+    if (minC < 0) { lr -= minC; lg -= minC; lb -= minC; }
+
+    // 3. Transform to AgX rendering space
+    let [ar, ag, ab] = mat3MulVec(AGX_PIPE_TO_RENDERING, lr, lg, lb);
+
+    // 4. Log encode — map scene-referred linear to 0-1 via log2
+    // Reference exposure at 0.18 (18% grey)
+    ar = Math.max(ar, AGX_EPSILON); ag = Math.max(ag, AGX_EPSILON); ab = Math.max(ab, AGX_EPSILON);
+    ar = Math.max(0, Math.min(1, (Math.log2(ar / 0.18) - AGX_MIN_EV) / AGX_RANGE_EV));
+    ag = Math.max(0, Math.min(1, (Math.log2(ag / 0.18) - AGX_MIN_EV) / AGX_RANGE_EV));
+    ab = Math.max(0, Math.min(1, (Math.log2(ab / 0.18) - AGX_MIN_EV) / AGX_RANGE_EV));
+
+    // 5. Apply sigmoid curve (toe + shoulder)
+    ar = agxApplyCurveChannel(ar);
+    ag = agxApplyCurveChannel(ag);
+    ab = agxApplyCurveChannel(ab);
+
+    // 6. Output gamma
+    ar = Math.pow(Math.max(0, ar), AGX_GAMMA);
+    ag = Math.pow(Math.max(0, ag), AGX_GAMMA);
+    ab = Math.pow(Math.max(0, ab), AGX_GAMMA);
+
+    // 7. Transform back to sRGB working space
+    const [fr, fg, fb] = mat3MulVec(AGX_RENDERING_TO_PIPE, ar, ag, ab);
+
+    // 8. Encode linear → sRGB display
+    data[i]     = linearToSrgb(fr);
+    data[i + 1] = linearToSrgb(fg);
+    data[i + 2] = linearToSrgb(fb);
+  }
 }

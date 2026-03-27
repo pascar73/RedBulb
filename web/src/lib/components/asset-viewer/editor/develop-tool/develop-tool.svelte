@@ -219,6 +219,22 @@
     {@render sectionHeader('light', 'Light', lightSliders)}
     {#if !collapsed.light}
       <div class="section-content">
+        <!-- Tone Mapper toggle -->
+        <div class="tone-mapper-row">
+          <span class="tone-mapper-label">Tone Mapper</span>
+          <div class="tone-mapper-switch">
+            <button
+              class="tone-mapper-btn"
+              class:active={developManager.toneMapper === 'none'}
+              onclick={() => developManager.toneMapper = 'none'}
+            >Standard</button>
+            <button
+              class="tone-mapper-btn"
+              class:active={developManager.toneMapper === 'filmic'}
+              onclick={() => developManager.toneMapper = 'filmic'}
+            >Filmic</button>
+          </div>
+        </div>
         {@render sliderGroup(lightSliders)}
       </div>
     {/if}
@@ -753,5 +769,43 @@
     border-radius: 50%;
     border: none;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Tone Mapper toggle */
+  .tone-mapper-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 0 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    margin-bottom: 4px;
+  }
+  .tone-mapper-label {
+    font-size: 11px;
+    color: #999;
+  }
+  .tone-mapper-switch {
+    display: flex;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 4px;
+    padding: 1px;
+    gap: 1px;
+  }
+  .tone-mapper-btn {
+    font-size: 10px;
+    padding: 2px 8px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tone-mapper-btn:hover {
+    color: #ccc;
+  }
+  .tone-mapper-btn.active {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
   }
 </style>

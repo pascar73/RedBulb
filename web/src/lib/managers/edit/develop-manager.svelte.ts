@@ -35,6 +35,9 @@ class DevelopManager implements EditToolManager {
   // Lens corrections
   caCorrection = $state(0);
 
+  // Tone mapper: 'none' = standard, 'filmic' = AgX film-like
+  toneMapper = $state<'none' | 'filmic'>('none');
+
   // Tone parameters
   vibrance = $state(0);
   tint = $state(0);
@@ -95,6 +98,7 @@ class DevelopManager implements EditToolManager {
       this.clarity !== 0 ||
       this.dehaze !== 0 ||
       this.caCorrection !== 0 ||
+      this.toneMapper !== 'none' ||
       this.vibrance !== 0 ||
       this.tint !== 0 ||
       this.texture !== 0 ||
@@ -155,6 +159,7 @@ class DevelopManager implements EditToolManager {
     clarity: this.clarity,
     dehaze: this.dehaze,
     caCorrection: this.caCorrection,
+    toneMapper: this.toneMapper,
     vibrance: this.vibrance,
     tint: this.tint,
     texture: this.texture,
@@ -197,6 +202,7 @@ class DevelopManager implements EditToolManager {
     this.clarity = 0;
     this.dehaze = 0;
     this.caCorrection = 0;
+    this.toneMapper = 'none';
     this.vibrance = 0;
     this.tint = 0;
     this.texture = 0;
@@ -297,6 +303,7 @@ class DevelopManager implements EditToolManager {
         tint: this.tint,
         vibrance: this.vibrance,
       },
+      toneMapper: this.toneMapper,
       details: {
         sharpness: this.sharpness,
         noiseReduction: this.noiseReduction,
@@ -346,6 +353,9 @@ class DevelopManager implements EditToolManager {
       this.tint = d.color.tint ?? 0;
       this.vibrance = d.color.vibrance ?? 0;
     }
+
+    // Tone mapper
+    this.toneMapper = d.toneMapper ?? 'none';
 
     // Details
     if (d.details) {
