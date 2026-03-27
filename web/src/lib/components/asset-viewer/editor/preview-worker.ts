@@ -815,21 +815,38 @@ function mat3MulVec(m: number[], r: number, g: number, b: number): [number, numb
 function applyFilmicToneMap(data: Uint8ClampedArray, w: number, h: number): void {
   const len = w * h * 4;
 
+  // Our input is display-referred sRGB, not scene-referred linear.
+  // sRGB mid-grey (128) decodes to ~0.216 linear, but AgX expects 0.18.
+  // We blend the original with the tone-mapped result to apply the filmic
+  // "look" (better highlight rolloff, hue preservation) without the
+  // brightness shift that comes from the reference mismatch.
+  //
+  // Strategy: compute AgX in a luminance-preserving way.
+  // 1. Compute per-pixel original luminance
+  // 2. Apply full AgX
+  // 3. Compute mapped luminance
+  // 4. Scale mapped result to match original luminance
+  // This preserves the AgX color behavior (no hue shift in highlights)
+  // while keeping overall brightness stable.
+
   for (let i = 0; i < len; i += 4) {
     // 1. Decode sRGB → linear
-    let lr = srgbToLinear(data[i]);
-    let lg = srgbToLinear(data[i + 1]);
-    let lb = srgbToLinear(data[i + 2]);
+    const lr = srgbToLinear(data[i]);
+    const lg = srgbToLinear(data[i + 1]);
+    const lb = srgbToLinear(data[i + 2]);
+
+    // Original luminance (Rec.709 weights)
+    const origLum = 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
 
     // 2. Gamut compression — shift negative values
-    const minC = Math.min(lr, lg, lb);
-    if (minC < 0) { lr -= minC; lg -= minC; lb -= minC; }
+    let cr = lr, cg = lg, cb = lb;
+    const minC = Math.min(cr, cg, cb);
+    if (minC < 0) { cr -= minC; cg -= minC; cb -= minC; }
 
     // 3. Transform to AgX rendering space
-    let [ar, ag, ab] = mat3MulVec(AGX_PIPE_TO_RENDERING, lr, lg, lb);
+    let [ar, ag, ab] = mat3MulVec(AGX_PIPE_TO_RENDERING, cr, cg, cb);
 
-    // 4. Log encode — map scene-referred linear to 0-1 via log2
-    // Reference exposure at 0.18 (18% grey)
+    // 4. Log encode — map to 0-1 via log2, reference at 0.18
     ar = Math.max(ar, AGX_EPSILON); ag = Math.max(ag, AGX_EPSILON); ab = Math.max(ab, AGX_EPSILON);
     ar = Math.max(0, Math.min(1, (Math.log2(ar / 0.18) - AGX_MIN_EV) / AGX_RANGE_EV));
     ag = Math.max(0, Math.min(1, (Math.log2(ag / 0.18) - AGX_MIN_EV) / AGX_RANGE_EV));
@@ -846,7 +863,16 @@ function applyFilmicToneMap(data: Uint8ClampedArray, w: number, h: number): void
     ab = Math.pow(Math.max(0, ab), AGX_GAMMA);
 
     // 7. Transform back to sRGB working space
-    const [fr, fg, fb] = mat3MulVec(AGX_RENDERING_TO_PIPE, ar, ag, ab);
+    let [fr, fg, fb] = mat3MulVec(AGX_RENDERING_TO_PIPE, ar, ag, ab);
+
+    // 8. Luminance-preserving correction: scale to match original brightness
+    const mappedLum = 0.2126 * fr + 0.7152 * fg + 0.0722 * fb;
+    if (mappedLum > 1e-6 && origLum > 1e-6) {
+      const scale = origLum / mappedLum;
+      fr *= scale;
+      fg *= scale;
+      fb *= scale;
+    }
 
     // 8. Encode linear → sRGB display
     data[i]     = linearToSrgb(fr);
