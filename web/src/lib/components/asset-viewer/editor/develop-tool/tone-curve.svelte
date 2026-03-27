@@ -337,7 +337,7 @@
 
   function updateDragPosition(clientX: number, clientY: number) {
     if (!svgElement) return;
-    wasDragging = true; // Flag that a real drag occurred
+    // drag in progress
     const rect = svgElement.getBoundingClientRect();
     const y = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
 
@@ -359,9 +359,8 @@
     const x = Math.max(0.01, Math.min(0.99, (clientX - rect.left) / rect.width));
     const points = [...getPoints()];
     points[draggingIndex] = { x, y };
-    points.sort((a, b) => a.x - b.x);
-    // Track the moved point after sort
-    draggingIndex = points.findIndex(p => p.x === x && p.y === y);
+    // Don't sort during drag — prevents Svelte from recreating DOM elements
+    // which breaks the ongoing mousedown state. Sort on mouseup instead.
     setPoints(points);
   }
 
@@ -375,6 +374,11 @@
     }
   }
   function handleMouseUp() {
+    // Sort points on drag end (deferred from updateDragPosition to avoid DOM recreation mid-drag)
+    if (draggingIndex !== null) {
+      const points = [...getPoints()].sort((a, b) => a.x - b.x);
+      setPoints(points);
+    }
     draggingIndex = null;
     draggingEndpoint = null;
   }
@@ -611,7 +615,7 @@
       />
 
       <!-- Control points -->
-      {#each getPoints() as point, index}
+      {#each getPoints() as point, index (index)}
         {@const svgX = point.x * SVG_SIZE}
         {@const svgY = (1 - point.y) * SVG_SIZE}
         <circle
