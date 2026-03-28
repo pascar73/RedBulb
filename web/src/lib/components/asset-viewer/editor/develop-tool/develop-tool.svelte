@@ -8,6 +8,7 @@
   import FloatingPanel from './floating-panel.svelte';
   import HistoryPanel from './history-panel.svelte';
   import NodeEditor from './node-editor.svelte';
+  import FloatingNodePanel from './floating-node-panel.svelte';
   import { type NodeGraph, legacyStateToNodeGraph, NODE_REGISTRY, type NodeType } from '../node-types';
 
   let saveStatus = $state<'idle' | 'saved' | 'saving'>('idle');
@@ -162,26 +163,39 @@
 
   // ── Node Editor state ──
   let showNodeEditor = $state(false);
+  let nodeEditorDetached = $state(false);
   let nodeGraph = $state<NodeGraph>(legacyStateToNodeGraph(developManager.serialize()));
   let selectedNodeId = $state<string | null>(null);
+  let graphContentW = $state(0);
+  let graphContentH = $state(0);
 
   // Sync node graph when sliders change (legacy → graph bridge)
-  // Only when node editor is visible
   $effect(() => {
-    if (showNodeEditor) {
+    if (showNodeEditor || nodeEditorDetached) {
       nodeGraph = legacyStateToNodeGraph(developManager.serialize());
     }
   });
 
   function handleGraphChange(newGraph: NodeGraph) {
     nodeGraph = newGraph;
-    // Future: sync graph back to develop manager
-    // For Phase 1, the node editor is read-only (reflects slider state)
-    // Write-back will be Phase 1.5
   }
 
   function handleSelectNode(id: string | null) {
     selectedNodeId = id;
+  }
+
+  function handleDimensionsChange(w: number, h: number) {
+    graphContentW = w;
+    graphContentH = h;
+  }
+
+  function detachNodeEditor() {
+    nodeEditorDetached = true;
+    showNodeEditor = false;
+  }
+
+  function collapseNodeEditor() {
+    nodeEditorDetached = false;
   }
 
   function exportXMP() {
@@ -381,19 +395,30 @@
 <div class="develop-panel">
   <!-- Node Editor toggle + graph -->
   <div class="node-editor-section">
-    <button class="node-toggle" class:active={showNodeEditor} onclick={() => showNodeEditor = !showNodeEditor}>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="5" cy="12" r="3"/><circle cx="19" cy="12" r="3"/><line x1="8" y1="12" x2="16" y2="12"/>
-      </svg>
-      Node Editor
-      <span class="node-toggle-hint">{showNodeEditor ? '▾' : '▸'}</span>
-    </button>
+    <div class="node-toggle-row">
+      <button class="node-toggle" class:active={showNodeEditor} onclick={() => { showNodeEditor = !showNodeEditor; if (showNodeEditor) nodeEditorDetached = false; }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="5" cy="12" r="3"/><circle cx="19" cy="12" r="3"/><line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+        Node Editor
+        <span class="node-toggle-hint">{showNodeEditor ? '▾' : nodeEditorDetached ? '⬒' : '▸'}</span>
+      </button>
+      {#if showNodeEditor}
+        <button class="node-popout-btn" onclick={detachNodeEditor} title="Pop out to floating window">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+            <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>
+          </svg>
+        </button>
+      {/if}
+    </div>
     {#if showNodeEditor}
       <NodeEditor
         graph={nodeGraph}
         onGraphChange={handleGraphChange}
         {selectedNodeId}
         onSelectNode={handleSelectNode}
+        onDimensionsChange={handleDimensionsChange}
       />
       {#if selectedNodeId}
         {@const selNode = nodeGraph.nodes.find(n => n.id === selectedNodeId)}
@@ -409,6 +434,24 @@
       {/if}
     {/if}
   </div>
+
+  <!-- Floating (detached) Node Editor -->
+  {#if nodeEditorDetached}
+    <FloatingNodePanel
+      title="Node Editor"
+      onClose={collapseNodeEditor}
+      contentWidth={graphContentW}
+      contentHeight={graphContentH}
+    >
+      <NodeEditor
+        graph={nodeGraph}
+        onGraphChange={handleGraphChange}
+        {selectedNodeId}
+        onSelectNode={handleSelectNode}
+        onDimensionsChange={handleDimensionsChange}
+      />
+    </FloatingNodePanel>
+  {/if}
 
   <!-- LIGHT -->
   <div class="section-card">
@@ -1047,6 +1090,27 @@
   /* Node Editor */
   .node-editor-section {
     padding: 0 0 4px;
+  }
+  .node-toggle-row {
+    display: flex;
+    align-items: center;
+  }
+  .node-popout-btn {
+    margin-left: auto;
+    margin-right: 8px;
+    padding: 3px 5px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    transition: all 0.15s;
+  }
+  .node-popout-btn:hover {
+    border-color: rgba(100, 180, 255, 0.4);
+    color: rgba(100, 180, 255, 0.8);
   }
   .node-toggle {
     display: flex;

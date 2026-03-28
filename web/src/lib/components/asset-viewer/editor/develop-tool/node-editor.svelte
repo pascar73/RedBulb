@@ -6,9 +6,11 @@
     onGraphChange: (graph: NodeGraph) => void;
     selectedNodeId: string | null;
     onSelectNode: (id: string | null) => void;
+    /** Expose computed content dimensions for floating panel zoom-to-fit */
+    onDimensionsChange?: (w: number, h: number) => void;
   }
 
-  let { graph, onGraphChange, selectedNodeId, onSelectNode }: Props = $props();
+  let { graph, onGraphChange, selectedNodeId, onSelectNode, onDimensionsChange }: Props = $props();
 
   // ── Layout constants ──
   const NODE_W = 90;
@@ -27,8 +29,13 @@
   function nodeX(i: number): number { return PAD_X + i * (NODE_W + NODE_GAP); }
   function nodeY(_i: number): number { return PAD_Y; }
 
-  const totalWidth = $derived(PAD_X * 2 + graph.nodes.length * (NODE_W + NODE_GAP) - NODE_GAP);
-  const totalHeight = PAD_Y * 2 + NODE_H + 30; // extra for add button
+  const totalWidth = $derived(PAD_X * 2 + graph.nodes.length * (NODE_W + NODE_GAP) - NODE_GAP + NODE_W); // extra for add button
+  const totalHeight = PAD_Y * 2 + NODE_H + 10;
+
+  // Notify parent of content dimensions for zoom-to-fit
+  $effect(() => {
+    onDimensionsChange?.(totalWidth, totalHeight);
+  });
 
   // ── Drag handlers ──
   function handleDragStart(index: number, e: DragEvent) {
