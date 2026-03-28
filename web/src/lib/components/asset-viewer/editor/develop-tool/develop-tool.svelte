@@ -1,7 +1,8 @@
 <script lang="ts">
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
   import { editManager } from '$lib/managers/edit/edit-manager.svelte';
-  import { transformManager } from '$lib/managers/edit/transform-manager.svelte';
+  // TODO: Transform section needs edit-manager refactor to co-activate with develop
+  // import { transformManager } from '$lib/managers/edit/transform-manager.svelte';
   import { saveVersion, listVersions } from '$lib/managers/edit/develop-history-api';
   import ToneCurve from './tone-curve.svelte';
   import HslPanel from './hsl-panel.svelte';
@@ -277,7 +278,6 @@
 
   // Collapse state for each section
   let collapsed = $state<Record<string, boolean>>({
-    transform: true,
     nodeEditor: true,
     light: false,
     color: false,
@@ -385,75 +385,7 @@
 {/snippet}
 
 <div class="develop-panel">
-  <!-- Transform (Crop/Rotate) -->
-  <div class="section-card">
-    {@render sectionHeader('transform', 'Transform')}
-    {#if !collapsed.transform}
-      <div class="section-content">
-        <!-- Orientation buttons -->
-        <div class="transform-group">
-          <span class="transform-group-label">Orientation</span>
-          <div class="transform-buttons">
-            <button class="transform-btn" title="Rotate Left" onclick={() => transformManager.rotate(-90)}>
-              <svg width="16" height="16" viewBox="0 0 24 24"><path d="M7.11 8.53L5.7 7.11C4.8 8.27 4.24 9.61 4.07 11h2.02c.14-.87.49-1.72 1.02-2.47zM6.09 13H4.07c.17 1.39.72 2.73 1.62 3.89l1.41-1.42c-.52-.75-.87-1.59-1.01-2.47zM7.1 18.32c1.16.9 2.51 1.44 3.9 1.61V17.9c-.87-.15-1.71-.49-2.46-1.03L7.1 18.32zM13 4.07V1L8.45 5.55 13 10V6.09c2.84.48 5 2.94 5 5.91s-2.16 5.43-5 5.91v2.02c3.95-.49 7-3.85 7-7.93s-3.05-7.44-7-7.93z" fill="currentColor"/></svg>
-            </button>
-            <button class="transform-btn" title="Rotate Right" onclick={() => transformManager.rotate(90)}>
-              <svg width="16" height="16" viewBox="0 0 24 24"><path d="M15.55 5.55L11 1v3.07C7.06 4.56 4 7.92 4 12s3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91s2.16-5.43 5-5.91V10l4.55-4.45zM19.93 11c-.17-1.39-.72-2.73-1.62-3.89l-1.42 1.42c.54.75.88 1.6 1.02 2.47h2.02zM13 17.9v2.02c1.39-.17 2.74-.71 3.9-1.61l-1.44-1.44c-.75.54-1.59.89-2.46 1.03zm3.89-2.42l1.42 1.41c.9-1.16 1.45-2.5 1.62-3.89h-2.02c-.14.87-.48 1.72-1.02 2.48z" fill="currentColor"/></svg>
-            </button>
-            <button class="transform-btn" title="Flip Horizontal" onclick={() => transformManager.mirror('horizontal')}>
-              <svg width="16" height="16" viewBox="0 0 24 24"><path d="M15 21h2v-2h-2v2zm4-12h2V7h-2v2zM3 5v14c0 1.1.9 2 2 2h4v-2H5V5h4V3H5c-1.1 0-2 .9-2 2zm16-2v2h2c0-1.1-.9-2-2-2zm-8-2h2v24h-2V1zm8 8h2v2h-2v-2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-4h2v-2h-2v2zm-4 8h2v-2h-2v2zm4-16h2v2h-2V5z" fill="currentColor"/></svg>
-            </button>
-            <button class="transform-btn" title="Flip Vertical" onclick={() => transformManager.mirror('vertical')}>
-              <svg width="16" height="16" viewBox="0 0 24 24" style="transform: rotate(90deg)"><path d="M15 21h2v-2h-2v2zm4-12h2V7h-2v2zM3 5v14c0 1.1.9 2 2 2h4v-2H5V5h4V3H5c-1.1 0-2 .9-2 2zm16-2v2h2c0-1.1-.9-2-2-2zm-8-2h2v24h-2V1zm8 8h2v2h-2v-2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-4h2v-2h-2v2zm-4 8h2v-2h-2v2zm4-16h2v2h-2V5z" fill="currentColor"/></svg>
-            </button>
-          </div>
-        </div>
-
-        <!-- Crop Aspect Ratios -->
-        <div class="transform-group">
-          <span class="transform-group-label">Crop</span>
-          <div class="crop-grid">
-            {#each [
-              { label: 'Free', value: 'free', w: 0, h: 0 },
-              { label: 'Original', value: 'original', w: 24, h: 18 },
-              { label: '5:4', value: '5:4', w: 22, h: 18 },
-              { label: '4:5', value: '4:5', w: 18, h: 22 },
-              { label: '4:3', value: '4:3', w: 24, h: 18 },
-              { label: '3:4', value: '3:4', w: 18, h: 24 },
-              { label: '3:2', value: '3:2', w: 24, h: 16 },
-              { label: '2:3', value: '2:3', w: 16, h: 24 },
-              { label: '16:9', value: '16:9', w: 24, h: 14 },
-              { label: '9:16', value: '9:16', w: 14, h: 24 },
-              { label: '1:1', value: '1:1', w: 20, h: 20 },
-            ] as ratio}
-              {@const isRotated = (transformManager.normalizedRotation ?? 0) % 180 !== 0}
-              {@const appliedValue = ratio.value === 'free' || ratio.value === 'original' ? ratio.value : (isRotated ? ratio.value.split(':').reverse().join(':') : ratio.value)}
-              {@const isActive = transformManager.cropAspectRatio === appliedValue}
-              <button
-                class="crop-btn"
-                class:active={isActive}
-                onclick={() => {
-                  if (ratio.value === 'original') {
-                    const size = transformManager.cropImageSize;
-                    transformManager.setAspectRatio(`${size.width}:${size.height}`);
-                  } else {
-                    transformManager.setAspectRatio(appliedValue);
-                  }
-                }}
-              >
-                {#if ratio.value === 'free'}
-                  <div class="crop-icon crop-free"></div>
-                {:else}
-                  <div class="crop-icon" style="width:{ratio.w}px; height:{ratio.h}px;"></div>
-                {/if}
-                <span class="crop-label">{ratio.label}</span>
-              </button>
-            {/each}
-          </div>
-        </div>
-      </div>
-    {/if}
-  </div>
+  <!-- TODO: Transform section requires edit-manager refactor to co-activate transformManager + developManager -->
 
   <!-- Node Editor -->
   {#if !nodeEditorPoppedOut}
