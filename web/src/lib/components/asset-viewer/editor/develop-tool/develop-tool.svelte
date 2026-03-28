@@ -162,8 +162,7 @@
   }
 
   // ── Node Editor state ──
-  let showNodeEditor = $state(false);
-  let nodeEditorDetached = $state(false);
+  let nodeEditorPoppedOut = $state(false);
   let nodeGraph = $state<NodeGraph>(legacyStateToNodeGraph(developManager.serialize()));
   let selectedNodeId = $state<string | null>(null);
   let graphContentW = $state(0);
@@ -171,9 +170,7 @@
 
   // Sync node graph when sliders change (legacy → graph bridge)
   $effect(() => {
-    if (showNodeEditor || nodeEditorDetached) {
-      nodeGraph = legacyStateToNodeGraph(developManager.serialize());
-    }
+    nodeGraph = legacyStateToNodeGraph(developManager.serialize());
   });
 
   function handleGraphChange(newGraph: NodeGraph) {
@@ -187,15 +184,6 @@
   function handleDimensionsChange(w: number, h: number) {
     graphContentW = w;
     graphContentH = h;
-  }
-
-  function detachNodeEditor() {
-    nodeEditorDetached = true;
-    showNodeEditor = false;
-  }
-
-  function collapseNodeEditor() {
-    nodeEditorDetached = false;
   }
 
   function exportXMP() {
@@ -287,6 +275,7 @@
 
   // Collapse state for each section
   let collapsed = $state<Record<string, boolean>>({
+    nodeEditor: true,
     light: false,
     color: false,
     presence: true,
@@ -393,53 +382,56 @@
 {/snippet}
 
 <div class="develop-panel">
-  <!-- Node Editor toggle + graph -->
-  <div class="node-editor-section">
-    <div class="node-toggle-row">
-      <button class="node-toggle" class:active={showNodeEditor} onclick={() => { showNodeEditor = !showNodeEditor; if (showNodeEditor) nodeEditorDetached = false; }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="5" cy="12" r="3"/><circle cx="19" cy="12" r="3"/><line x1="8" y1="12" x2="16" y2="12"/>
-        </svg>
-        Node Editor
-        <span class="node-toggle-hint">{showNodeEditor ? '▾' : nodeEditorDetached ? '⬒' : '▸'}</span>
-      </button>
-      {#if showNodeEditor}
-        <button class="node-popout-btn" onclick={detachNodeEditor} title="Pop out to floating window">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-            <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>
-          </svg>
-        </button>
+  <!-- Node Editor -->
+  {#if !nodeEditorPoppedOut}
+    <div class="section-card">
+      <div class="section-header" role="button" tabindex="0" onclick={() => toggleSection('nodeEditor')}>
+        <span class="section-title">Node Editor</span>
+        <div class="section-header-right">
+          <button
+            class="section-popout"
+            title="Pop out to floating window"
+            onclick={(e) => { e.stopPropagation(); nodeEditorPoppedOut = true; }}
+          >⤢</button>
+          <span class="chevron" class:collapsed={collapsed.nodeEditor}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+              <path d="M2.5 7.5L6 4L9.5 7.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+          </span>
+        </div>
+      </div>
+      {#if !collapsed.nodeEditor}
+        <div class="section-content node-editor-inline">
+          <NodeEditor
+            graph={nodeGraph}
+            onGraphChange={handleGraphChange}
+            {selectedNodeId}
+            onSelectNode={handleSelectNode}
+            onDimensionsChange={handleDimensionsChange}
+          />
+        </div>
       {/if}
     </div>
-    {#if showNodeEditor}
-      <NodeEditor
-        graph={nodeGraph}
-        onGraphChange={handleGraphChange}
-        {selectedNodeId}
-        onSelectNode={handleSelectNode}
-        onDimensionsChange={handleDimensionsChange}
-      />
-      {#if selectedNodeId}
-        {@const selNode = nodeGraph.nodes.find(n => n.id === selectedNodeId)}
-        {#if selNode}
-          <div class="selected-node-info">
-            <span class="selected-node-icon">{NODE_REGISTRY[selNode.type as NodeType]?.icon}</span>
-            <span class="selected-node-name">{selNode.label}</span>
-            <span class="selected-node-status" class:active={selNode.enabled}>
-              {selNode.enabled ? 'Active' : 'Bypassed'}
-            </span>
-          </div>
-        {/if}
-      {/if}
-    {/if}
-  </div>
+  {:else}
+    <div class="section-card popped-out-placeholder">
+      <div class="section-header" role="button" tabindex="0" onclick={() => nodeEditorPoppedOut = false}>
+        <span class="section-title popped-label">Node Editor ↗</span>
+        <div class="section-header-right">
+          <button
+            class="section-popout active"
+            title="Collapse back to panel"
+            onclick={(e) => { e.stopPropagation(); nodeEditorPoppedOut = false; }}
+          >⤡</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
-  <!-- Floating (detached) Node Editor -->
-  {#if nodeEditorDetached}
+  <!-- Floating Node Editor Window -->
+  {#if nodeEditorPoppedOut}
     <FloatingNodePanel
       title="Node Editor"
-      onClose={collapseNodeEditor}
+      onClose={() => nodeEditorPoppedOut = false}
       contentWidth={graphContentW}
       contentHeight={graphContentH}
     >
@@ -1087,71 +1079,10 @@
     cursor: default;
   }
 
-  /* Node Editor */
-  .node-editor-section {
-    padding: 0 0 4px;
+  /* Node Editor inline */
+  .node-editor-inline {
+    height: 140px;
+    min-height: 100px;
   }
-  .node-toggle-row {
-    display: flex;
-    align-items: center;
-  }
-  .node-popout-btn {
-    margin-left: auto;
-    margin-right: 8px;
-    padding: 3px 5px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-    background: transparent;
-    color: #888;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    transition: all 0.15s;
-  }
-  .node-popout-btn:hover {
-    border-color: rgba(100, 180, 255, 0.4);
-    color: rgba(100, 180, 255, 0.8);
-  }
-  .node-toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 6px 12px;
-    border: none;
-    background: transparent;
-    color: #888;
-    font-size: 11px;
-    cursor: pointer;
-    transition: color 0.15s;
-  }
-  .node-toggle:hover, .node-toggle.active {
-    color: #ddd;
-  }
-  .node-toggle-hint {
-    margin-left: auto;
-    font-size: 9px;
-    opacity: 0.5;
-  }
-  .selected-node-info {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 12px 6px;
-    font-size: 11px;
-  }
-  .selected-node-icon { font-size: 13px; }
-  .selected-node-name { color: #ccc; font-weight: 500; }
-  .selected-node-status {
-    margin-left: auto;
-    font-size: 9px;
-    padding: 1px 6px;
-    border-radius: 3px;
-    background: rgba(255, 80, 80, 0.15);
-    color: rgba(255, 80, 80, 0.8);
-  }
-  .selected-node-status.active {
-    background: rgba(80, 200, 120, 0.15);
-    color: rgba(80, 200, 120, 0.8);
-  }
+
 </style>

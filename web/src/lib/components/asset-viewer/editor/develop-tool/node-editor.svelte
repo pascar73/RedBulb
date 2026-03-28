@@ -19,8 +19,9 @@
   const LIBRARY_W = 160;    // Right sidebar width
   const CANVAS_PAD = 24;
 
-  // ── Canvas pan/scroll state ──
+  // ── Canvas state ──
   let canvasEl = $state<HTMLDivElement | undefined>(undefined);
+  let canvasRect = $state({ width: 400, height: 120 });
 
   // ── Drag from library state ──
   let dragFromLibrary = $state<NodeType | null>(null);
@@ -29,6 +30,18 @@
   // ── Node drag state ──
   let draggingNode = $state<string | null>(null);
   let dragOffset = { x: 0, y: 0 };
+
+  // Track canvas element size with ResizeObserver
+  $effect(() => {
+    if (!canvasEl) return;
+    const ro = new ResizeObserver(entries => {
+      for (const e of entries) {
+        canvasRect = { width: e.contentRect.width, height: e.contentRect.height };
+      }
+    });
+    ro.observe(canvasEl);
+    return () => ro.disconnect();
+  });
 
   // ── Computed bounds ──
   const graphBounds = $derived.by(() => {
@@ -45,6 +58,14 @@
 
   const canvasW = $derived(Math.max(400, graphBounds.maxX - graphBounds.minX + CANVAS_PAD * 2 + IO_R * 4));
   const canvasH = $derived(Math.max(120, graphBounds.maxY - graphBounds.minY + CANVAS_PAD * 2));
+
+  // Auto-zoom: scale node graph to fill the canvas viewport
+  const autoZoom = $derived.by(() => {
+    if (canvasRect.width < 10 || canvasRect.height < 10) return 1;
+    const scaleX = canvasRect.width / canvasW;
+    const scaleY = canvasRect.height / canvasH;
+    return Math.min(2.5, Math.max(0.25, Math.min(scaleX, scaleY)));
+  });
 
   // Input/output connector positions (green dots)
   const inputPos = $derived({ x: 6, y: canvasH / 2 });
@@ -210,8 +231,10 @@
     onclick={handleCanvasClick}
     role="application"
   >
+    <!-- Scaled graph content -->
+    <div class="graph-scale-wrapper" style="transform: scale({autoZoom}); transform-origin: 0 0; width: {canvasW}px; height: {canvasH}px;">
     <!-- SVG layer: wires + I/O dots -->
-    <svg class="canvas-svg" viewBox="0 0 {canvasW} {canvasH}" preserveAspectRatio="xMidYMid meet">
+    <svg class="canvas-svg" width={canvasW} height={canvasH} viewBox="0 0 {canvasW} {canvasH}">
       <!-- Wires -->
       {#each wires as wire}
         <line
@@ -281,7 +304,9 @@
         {/if}
       </div>
     {/each}
-  </div>
+
+    </div><!-- end graph-scale-wrapper -->
+  </div><!-- end node-canvas -->
 
   <!-- Library sidebar -->
   <div class="node-library">
@@ -331,12 +356,13 @@
     scrollbar-width: thin;
     scrollbar-color: rgba(255,255,255,0.08) transparent;
   }
+  .graph-scale-wrapper {
+    position: relative;
+  }
   .canvas-svg {
     position: absolute;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
     pointer-events: none;
   }
 
