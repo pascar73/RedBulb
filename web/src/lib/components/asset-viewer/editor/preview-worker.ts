@@ -58,8 +58,134 @@ export interface PreviewResponse {
   height: number;
 }
 
-self.onmessage = (e: MessageEvent<PreviewRequest>) => {
+// ══════════════════════════════════════════════════════════════
+// NODE GRAPH PROCESSING (Phase 1: serial chain)
+// ══════════════════════════════════════════════════════════════
+
+export interface NodeGraphRequest {
+  type: 'processGraph';
+  pixels: ArrayBuffer;
+  width: number;
+  height: number;
+  nodes: SerialNode[];
+  grainSeed: number;
+  /** Curve LUTs pre-built on main thread */
+  masterLUT?: ArrayBuffer;
+  redLUT?: ArrayBuffer;
+  greenLUT?: ArrayBuffer;
+  blueLUT?: ArrayBuffer;
+}
+
+export interface SerialNode {
+  type: string;
+  enabled: boolean;
+  params: Record<string, any>;
+}
+
+/** Process a serial node chain — each node's output feeds the next */
+function processNodeGraph(msg: NodeGraphRequest): void {
+  const w = msg.width;
+  const h = msg.height;
+  const data = new Uint8ClampedArray(msg.pixels);
+
+  for (const node of msg.nodes) {
+    if (!node.enabled) continue;
+    const p = node.params;
+
+    switch (node.type) {
+      case 'exposure':
+        applyExposure(data, w, h, p.exposure ?? 0, p.brightness ?? 0,
+          p.highlights ?? 0, p.shadows ?? 0, p.whites ?? 0, p.blacks ?? 0);
+        break;
+      case 'contrast':
+        applyContrast(data, w, h, p.contrast ?? 0, p.fade ?? 0);
+        break;
+      case 'temperature':
+        applyTemperature(data, w, h, p.temperature ?? 0, p.tint ?? 0);
+        break;
+      case 'saturation':
+        applySaturation(data, w, h, p.saturation ?? 0, p.vibrance ?? 0);
+        break;
+      case 'curves': {
+        if (msg.masterLUT && msg.redLUT && msg.greenLUT && msg.blueLUT) {
+          const mL = new Uint8Array(msg.masterLUT);
+          const rL = new Uint8Array(msg.redLUT);
+          const gL = new Uint8Array(msg.greenLUT);
+          const bL = new Uint8Array(msg.blueLUT);
+          for (let i = 0; i < data.length; i += 4) {
+            data[i]     = mL[rL[data[i]]];
+            data[i + 1] = mL[gL[data[i + 1]]];
+            data[i + 2] = mL[bL[data[i + 2]]];
+          }
+        }
+        break;
+      }
+      case 'filmicToneMap':
+        applyFilmicToneMap(data, w, h);
+        break;
+      case 'caCorrection':
+        if ((p.amount ?? 0) > 0.01) applyChromaticAberration(data, w, h, p.amount);
+        break;
+      case 'dehaze':
+        if (Math.abs(p.amount ?? 0) > 0.01) applyDehaze(data, w, h, p.amount);
+        break;
+      case 'clarity':
+        if (Math.abs(p.clarity ?? 0) > 0.01 || Math.abs(p.texture ?? 0) > 0.01)
+          applyClarity(data, w, h, p.clarity ?? 0, p.texture ?? 0);
+        break;
+      case 'sharpen':
+        if ((p.amount ?? 0) > 0.01) applySharpen(data, w, h, p.amount);
+        break;
+      case 'denoise':
+        if ((p.amount ?? 0) > 0.01) applyDenoise(data, w, h, p.amount);
+        break;
+      case 'hsl': {
+        const channels = p.channels || {};
+        const hasHSL = Object.values(channels).some((ch: any) => ch.h !== 0 || ch.s !== 0 || ch.l !== 0);
+        if (hasHSL) {
+          for (let i = 0; i < data.length; i += 4) {
+            const [r, g, b] = applyHSL_OKLCh(data[i], data[i + 1], data[i + 2], channels);
+            data[i] = r; data[i + 1] = g; data[i + 2] = b;
+          }
+        }
+        break;
+      }
+      case 'colorGrade': {
+        const cw = { shadows: p.shadows, midtones: p.midtones, highlights: p.highlights };
+        const hasGrade = Object.values(cw).some((w: any) => w && (w.hue !== 0 || w.sat !== 0 || w.lum !== 0));
+        if (hasGrade) {
+          for (let i = 0; i < data.length; i += 4) {
+            const [r, g, b] = applyColorGrading(data[i], data[i + 1], data[i + 2], cw);
+            data[i] = r; data[i + 1] = g; data[i + 2] = b;
+          }
+        }
+        break;
+      }
+      case 'vignette':
+        if (Math.abs(p.amount ?? 0) > 0.01)
+          applyVignette(data, w, h, p.amount, p.midpoint ?? 50, p.roundness ?? 0, p.feather ?? 50, p.highlights ?? 0);
+        break;
+      case 'grain':
+        if ((p.amount ?? 0) > 0.01)
+          applyFilmGrain(data, w, h, p.amount, p.size ?? 25, p.roughness ?? 50, msg.grainSeed);
+        break;
+    }
+  }
+
+  const resp: PreviewResponse = { type: 'processed', pixels: data.buffer, width: w, height: h };
+  (self as unknown as Worker).postMessage(resp, [data.buffer]);
+}
+
+self.onmessage = (e: MessageEvent<PreviewRequest | NodeGraphRequest>) => {
   const msg = e.data;
+
+  // Node graph processing (Phase 1)
+  if (msg.type === 'processGraph') {
+    processNodeGraph(msg as NodeGraphRequest);
+    return;
+  }
+
+  // Legacy processing (backward compatible)
   if (msg.type !== 'process') return;
 
   const w = msg.width;
@@ -941,5 +1067,201 @@ function applyFilmicToneMap(data: Uint8ClampedArray, w: number, h: number): void
     data[i]     = linearToSrgb(fr);
     data[i + 1] = linearToSrgb(fg);
     data[i + 2] = linearToSrgb(fb);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// NODE PROCESSING FUNCTIONS — per-pixel implementations
+// (replacing CSS filter hacks for full pipeline control)
+// ══════════════════════════════════════════════════════════════
+
+/** Exposure, brightness, highlights, shadows, whites, blacks — all in linear light */
+function applyExposure(
+  data: Uint8ClampedArray, w: number, h: number,
+  exposure: number, brightness: number,
+  highlights: number, shadows: number, whites: number, blacks: number,
+): void {
+  if (exposure === 0 && brightness === 0 && highlights === 0 && shadows === 0 && whites === 0 && blacks === 0) return;
+
+  const len = w * h * 4;
+  // Exposure multiplier (EV stops): 2^exposure
+  const expMul = Math.pow(2, exposure * 0.5);
+  // Brightness offset in linear
+  const brightOff = brightness * 0.5;
+
+  for (let i = 0; i < len; i += 4) {
+    let r = srgbToLinear(data[i]);
+    let g = srgbToLinear(data[i + 1]);
+    let b = srgbToLinear(data[i + 2]);
+
+    // Apply exposure (multiplicative, like real camera exposure)
+    r *= expMul; g *= expMul; b *= expMul;
+
+    // Luminance for zone-based adjustments
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+    // Highlights recovery (affects bright areas, lum > 0.5)
+    if (highlights !== 0 && lum > 0.5) {
+      const t = (lum - 0.5) * 2; // 0 at mid, 1 at white
+      const adj = 1 + highlights * t * 0.3;
+      r *= adj; g *= adj; b *= adj;
+    }
+
+    // Shadows lift (affects dark areas, lum < 0.5)
+    if (shadows !== 0 && lum < 0.5) {
+      const t = 1 - lum * 2; // 1 at black, 0 at mid
+      const lift = shadows * t * 0.2;
+      r += lift; g += lift; b += lift;
+    }
+
+    // Whites (clip point adjustment — affects near-white)
+    if (whites !== 0) {
+      const t = Math.pow(Math.max(0, lum), 2); // quadratic — mostly affects brights
+      r += whites * t * 0.2; g += whites * t * 0.2; b += whites * t * 0.2;
+    }
+
+    // Blacks (lift/crush — affects near-black)
+    if (blacks !== 0) {
+      const t = Math.pow(1 - Math.min(1, lum), 2); // quadratic — mostly affects darks
+      r += blacks * t * 0.15; g += blacks * t * 0.15; b += blacks * t * 0.15;
+    }
+
+    // Brightness (simple offset)
+    r += brightOff; g += brightOff; b += brightOff;
+
+    data[i]     = linearToSrgb(Math.max(0, r));
+    data[i + 1] = linearToSrgb(Math.max(0, g));
+    data[i + 2] = linearToSrgb(Math.max(0, b));
+  }
+}
+
+/** Contrast + fade — operates in sRGB for perceptual correctness */
+function applyContrast(data: Uint8ClampedArray, w: number, h: number, contrast: number, fade: number): void {
+  if (contrast === 0 && fade === 0) return;
+  const len = w * h * 4;
+  const c = 1 + contrast; // 0 → 1x, 1 → 2x, -1 → 0x
+
+  for (let i = 0; i < len; i += 4) {
+    let r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+
+    // Contrast: scale around mid-grey (0.5)
+    r = (r - 0.5) * c + 0.5;
+    g = (g - 0.5) * c + 0.5;
+    b = (b - 0.5) * c + 0.5;
+
+    // Fade: reduce contrast + lift shadows (like faded film print)
+    if (fade > 0) {
+      const fadeAmount = fade * 0.3;
+      r = r * (1 - fadeAmount) + fadeAmount * 0.5;
+      g = g * (1 - fadeAmount) + fadeAmount * 0.5;
+      b = b * (1 - fadeAmount) + fadeAmount * 0.5;
+      // Slight brightness lift
+      const lift = fade * 0.08;
+      r += lift; g += lift; b += lift;
+    }
+
+    data[i]     = clamp255(r * 255);
+    data[i + 1] = clamp255(g * 255);
+    data[i + 2] = clamp255(b * 255);
+  }
+}
+
+/** Temperature + tint — perceptual color adjustment */
+function applyTemperature(data: Uint8ClampedArray, w: number, h: number, temperature: number, tint: number): void {
+  if (temperature === 0 && tint === 0) return;
+  const len = w * h * 4;
+
+  // Temperature: warm (positive) adds red/yellow, cool (negative) adds blue
+  // Tint: positive adds magenta, negative adds green
+  const tempR = temperature > 0 ? temperature * 0.15 : 0;
+  const tempB = temperature < 0 ? -temperature * 0.15 : 0;
+  const warmDesatB = temperature > 0 ? temperature * 0.1 : 0;
+  const coolDesatR = temperature < 0 ? -temperature * 0.1 : 0;
+
+  const tintG = tint < 0 ? -tint * 0.12 : 0;
+  const tintM = tint > 0 ? tint * 0.08 : 0; // magenta = add R+B, reduce G
+
+  for (let i = 0; i < len; i += 4) {
+    let r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+
+    // Temperature
+    r = r + tempR - coolDesatR;
+    b = b + tempB - warmDesatB;
+
+    // Tint
+    g = g + tintG - tintM;
+    r = r + tintM * 0.5;
+    b = b + tintM * 0.5;
+
+    data[i]     = clamp255(r * 255);
+    data[i + 1] = clamp255(g * 255);
+    data[i + 2] = clamp255(b * 255);
+  }
+}
+
+/** Saturation + vibrance — perceptual saturation in OKLab space */
+function applySaturation(data: Uint8ClampedArray, w: number, h: number, saturation: number, vibrance: number): void {
+  if (saturation === 0 && vibrance === 0) return;
+  const len = w * h * 4;
+  const satMul = 1 + saturation;
+
+  for (let i = 0; i < len; i += 4) {
+    const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+    // Vibrance: adaptive saturation that boosts muted colors more than saturated ones
+    let effSat = satMul;
+    if (vibrance !== 0) {
+      const currentSat = Math.max(Math.abs(r - lum), Math.abs(g - lum), Math.abs(b - lum));
+      // Less-saturated pixels get more boost
+      const vibranceBoost = vibrance * (1 - currentSat * 1.5);
+      effSat += Math.max(0, vibranceBoost) * 0.5;
+    }
+
+    data[i]     = clamp255(((r - lum) * effSat + lum) * 255);
+    data[i + 1] = clamp255(((g - lum) * effSat + lum) * 255);
+    data[i + 2] = clamp255(((b - lum) * effSat + lum) * 255);
+  }
+}
+
+/** Vignette — radial darkening/lightening */
+function applyVignette(
+  data: Uint8ClampedArray, w: number, h: number,
+  amount: number, midpoint: number, roundness: number, feather: number, highlights: number,
+): void {
+  if (Math.abs(amount) < 0.01) return;
+
+  const cx = w / 2, cy = h / 2;
+  const maxR = Math.sqrt(cx * cx + cy * cy);
+  const mid = midpoint / 100;
+  const feat = Math.max(0.01, feather / 100);
+  const round = 1 + roundness / 100; // >1 = more circular, <1 = more rectangular
+  const hlRecovery = highlights / 100;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      // Distance from center (normalized 0-1)
+      const dx = (x - cx) / cx, dy = (y - cy) / cy;
+      const dist = Math.pow(Math.pow(Math.abs(dx), round * 2) + Math.pow(Math.abs(dy), round * 2), 0.5 / round);
+
+      // Vignette falloff: smooth transition from midpoint outward
+      const t = Math.max(0, Math.min(1, (dist - mid) / feat));
+      const vig = t * t * (3 - 2 * t); // smoothstep
+
+      const darkening = amount * vig;
+
+      const idx = (y * w + x) * 4;
+      const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+
+      // Highlight recovery: reduce darkening for bright pixels
+      const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      const effectiveDark = darkening * (1 - hlRecovery * lum);
+
+      // Apply: negative amount = darken, positive = lighten
+      const mul = 1 - effectiveDark;
+      data[idx]     = clamp255(r * mul);
+      data[idx + 1] = clamp255(g * mul);
+      data[idx + 2] = clamp255(b * mul);
+    }
   }
 }
