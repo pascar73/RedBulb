@@ -193,13 +193,7 @@
       origW = canvas.width;
       origH = canvas.height;
 
-      // Step 1: Apply CSS-compatible filters via ctx.filter (GPU-accelerated by browser)
       const p = developManager.params;
-      ctx.filter = buildFilterString(p);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      ctx.filter = 'none';
-      
-      // Step 2: Per-pixel processing — offloaded to Web Worker
       const curves = developManager.curves;
       const hsl = developManager.hsl;
       const ep = developManager.curveEndpoints;
@@ -213,9 +207,25 @@
         || p.dehaze > 0.01 || Math.abs(p.clarity) > 0.01 || Math.abs(p.texture) > 0.01
         || p.sharpness > 0.01 || p.noiseReduction > 0.01 || p.caCorrection > 0.01
         || p.grain > 0.01;
+
+      // Step 1: Apply CSS filters on a hidden temp canvas (not the visible one).
+      // This prevents the "flash" when the worker is processing — the visible canvas
+      // keeps showing the previous result until the worker returns the new one.
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = canvas.width;
+      tmpCanvas.height = canvas.height;
+      const tmpCtx = tmpCanvas.getContext('2d')!;
+      tmpCtx.filter = buildFilterString(p);
+      tmpCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      tmpCtx.filter = 'none';
+
+      // Only update visible canvas immediately if NO worker processing is needed
+      if (!hasWorkerProcessing) {
+        ctx.drawImage(tmpCanvas, 0, 0);
+      }
       
       if (hasWorkerProcessing && previewWorker) {
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const imageData = tmpCtx.getImageData(0, 0, canvas.width, canvas.height);
         
         // Build LUTs on main thread (fast — just 256-entry tables)
         const masterLUT = buildCurveLUTShared(curves.master, ep.master);
