@@ -5,36 +5,25 @@
     title: string;
     onClose: () => void;
     children: Snippet;
-    /** Graph content width (total node chain width) */
     contentWidth: number;
-    /** Graph content height */
     contentHeight: number;
+    /** Current zoom level reported by node-editor */
+    currentZoom?: number;
   }
 
-  let { title, onClose, children, contentWidth, contentHeight }: Props = $props();
+  let { title, onClose, children, contentWidth, contentHeight, currentZoom = 1 }: Props = $props();
 
-  // Panel position & size — free width/height (not aspect-locked)
+  // Panel position & size — fully unconstrained
   let panelX = $state(60);
   let panelY = $state(60);
-  let panelW = $state(640);
-  let panelH = $state(200);
+  let panelW = $state(900);
+  let panelH = $state(350);
   let opacity = $state(0.92);
 
-  const CHROME_H = 72; // title bar ~32 + footer ~40
-  const MIN_W = 300;
-  const MAX_W = 1400;
-  const MIN_H = 140;
-  const MAX_H = 500;
-
-  // Zoom to fit: scale so content fits inside panel minus chrome
-  let graphZoom = $derived.by(() => {
-    const availW = panelW - 20; // 10px padding each side
-    const availH = panelH - CHROME_H - 10;
-    if (contentWidth <= 0 || contentHeight <= 0) return 1;
-    const scaleX = availW / contentWidth;
-    const scaleY = availH / contentHeight;
-    return Math.min(1.5, Math.max(0.3, Math.min(scaleX, scaleY)));
-  });
+  const CHROME_H = 72;
+  const MIN_W = 200;
+  const MIN_H = 100;
+  // No max constraints — freely resizable
 
   // ── Drag ──
   let dragging = $state(false);
@@ -94,15 +83,15 @@
     const dx = clientX - resizeStartX;
     const dy = clientY - resizeStartY;
 
-    if (resizing.includes('e')) panelW = Math.max(MIN_W, Math.min(MAX_W, resizeStartW + dx));
+    if (resizing.includes('e')) panelW = Math.max(MIN_W, resizeStartW + dx);
     if (resizing.includes('w')) {
-      const newW = Math.max(MIN_W, Math.min(MAX_W, resizeStartW - dx));
+      const newW = Math.max(MIN_W, resizeStartW - dx);
       panelX = resizeStartPX + (resizeStartW - newW);
       panelW = newW;
     }
-    if (resizing.includes('s')) panelH = Math.max(MIN_H, Math.min(MAX_H, resizeStartH + dy));
+    if (resizing.includes('s')) panelH = Math.max(MIN_H, resizeStartH + dy);
     if (resizing.includes('n')) {
-      const newH = Math.max(MIN_H, Math.min(MAX_H, resizeStartH - dy));
+      const newH = Math.max(MIN_H, resizeStartH - dy);
       panelY = resizeStartPY + (resizeStartH - newH);
       panelH = newH;
     }
@@ -127,6 +116,8 @@
     dragging = false;
     resizing = null;
   }
+
+  const nodeCount = $derived(contentWidth > 0 ? Math.round(contentWidth / 106) : 0);
 </script>
 
 <svelte:window onmousemove={onMove} onmouseup={onUp} ontouchmove={onMoveTouch} ontouchend={onUp} />
@@ -159,24 +150,24 @@
       <span class="title-text">{title}</span>
     </div>
     <div class="title-right">
-      <span class="zoom-label">{Math.round(graphZoom * 100)}%</span>
+      <span class="zoom-label">{Math.round(currentZoom * 100)}%</span>
       <button class="close-btn" onclick={onClose} title="Collapse back to panel">✕</button>
     </div>
   </div>
 
-  <!-- Graph content — fills available space -->
+  <!-- Graph content -->
   <div class="graph-viewport">
     {@render children()}
   </div>
 
-  <!-- Footer with opacity -->
+  <!-- Footer -->
   <div class="footer-bar">
     <div class="opacity-control">
       <span class="footer-label">Opacity</span>
       <input type="range" min="0.2" max="1" step="0.01" bind:value={opacity} class="opacity-slider" />
       <span class="footer-value">{Math.round(opacity * 100)}%</span>
     </div>
-    <div class="node-count">{contentWidth > 0 ? Math.round(contentWidth / 106) : 0} nodes</div>
+    <div class="node-count">{nodeCount} nodes</div>
   </div>
 </div>
 
@@ -208,27 +199,10 @@
     -webkit-user-select: none;
     flex-shrink: 0;
   }
-  .title-left {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .title-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .title-text {
-    font-size: 12px;
-    font-weight: 600;
-    color: #d1d5db;
-    letter-spacing: 0.03em;
-  }
-  .zoom-label {
-    font-size: 10px;
-    color: #6b7280;
-    font-family: 'SF Mono', monospace;
-  }
+  .title-left { display: flex; align-items: center; gap: 6px; }
+  .title-right { display: flex; align-items: center; gap: 8px; }
+  .title-text { font-size: 12px; font-weight: 600; color: #d1d5db; letter-spacing: 0.03em; }
+  .zoom-label { font-size: 10px; color: #6b7280; font-family: 'SF Mono', monospace; }
   .close-btn {
     width: 20px; height: 20px;
     display: flex; align-items: center; justify-content: center;
@@ -259,28 +233,10 @@
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     flex-shrink: 0;
   }
-  .opacity-control {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-  .footer-label {
-    font-size: 10px;
-    color: #6b7280;
-    white-space: nowrap;
-  }
-  .footer-value {
-    font-size: 10px;
-    color: #9ca3af;
-    min-width: 30px;
-    font-family: 'SF Mono', monospace;
-  }
-  .node-count {
-    margin-left: auto;
-    font-size: 10px;
-    color: #6b7280;
-  }
+  .opacity-control { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .footer-label { font-size: 10px; color: #6b7280; white-space: nowrap; }
+  .footer-value { font-size: 10px; color: #9ca3af; min-width: 30px; font-family: 'SF Mono', monospace; }
+  .node-count { margin-left: auto; font-size: 10px; color: #6b7280; }
   .opacity-slider {
     width: 80px; height: 3px;
     -webkit-appearance: none; appearance: none;

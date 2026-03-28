@@ -167,6 +167,7 @@
   let selectedNodeId = $state<string | null>(null);
   let graphContentW = $state(0);
   let graphContentH = $state(0);
+  let nodeEditorZoom = $state(1);
 
   // Sync node graph when sliders change (legacy → graph bridge)
   $effect(() => {
@@ -408,6 +409,7 @@
             {selectedNodeId}
             onSelectNode={handleSelectNode}
             onDimensionsChange={handleDimensionsChange}
+            onZoomChange={(z) => nodeEditorZoom = z}
           />
         </div>
       {/if}
@@ -434,6 +436,7 @@
       onClose={() => nodeEditorPoppedOut = false}
       contentWidth={graphContentW}
       contentHeight={graphContentH}
+      currentZoom={nodeEditorZoom}
     >
       <NodeEditor
         graph={nodeGraph}
@@ -441,6 +444,7 @@
         {selectedNodeId}
         onSelectNode={handleSelectNode}
         onDimensionsChange={handleDimensionsChange}
+        onZoomChange={(z) => nodeEditorZoom = z}
       />
     </FloatingNodePanel>
   {/if}

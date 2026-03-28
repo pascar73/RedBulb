@@ -305,7 +305,7 @@ export function createNode(type: NodeType, overrides?: Partial<ProcessingNode>):
 
 /** Create the default serial pipeline as a node graph */
 export function createDefaultGraph(): NodeGraph {
-  const NODE_W = 80, NODE_GAP = 16, PAD_LEFT = 30, PAD_TOP = 40;
+  const NODE_W = 160, NODE_GAP = 24, PAD_LEFT = 40, PAD_TOP = 40;
   const nodes = DEFAULT_NODE_ORDER.map((type, i) => {
     const node = createNode(type);
     node.position = { x: PAD_LEFT + i * (NODE_W + NODE_GAP), y: PAD_TOP };
