@@ -195,16 +195,20 @@
   const sortedNodes = $derived([...graph.nodes].sort((a, b) => a.position.x - b.position.x));
 
   // ── Bezier wires ──
-  // Nuke-style: horizontal tangent at both ends, control point offset
-  // proportional to the total distance (not just dx) so large Y gaps
-  // don't create loops
+  // DaVinci/Nuke-style: horizontal tangent at endpoints.
+  // Key insight: cpx must scale with dx, NOT with total distance.
+  // When dy >> dx (vertical arrangement), large cpx creates loops.
   function bezierPath(x1: number, y1: number, x2: number, y2: number): string {
     const dx = x2 - x1;
-    const dy = y2 - y1;
-    // Use total distance, not just horizontal — prevents loops on big Y gaps
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    // Control point offset: 40% of total distance, min 30, max half of dx+100
-    const cpx = Math.max(30, Math.min(dist * 0.4, Math.abs(dx) * 0.5 + 100));
+    const dy = Math.abs(y2 - y1);
+    const adx = Math.abs(dx);
+
+    // Base offset proportional to horizontal span
+    // For mostly-horizontal: ~45% of dx (smooth S-curve)
+    // For mostly-vertical: shrink to prevent loops, but keep min for visibility
+    const horizontalBias = adx / (adx + dy + 1); // 0..1, high when mostly horizontal
+    const cpx = Math.max(20, adx * 0.45 * horizontalBias + 30 * (1 - horizontalBias));
+
     return `M${x1},${y1} C${x1 + cpx},${y1} ${x2 - cpx},${y2} ${x2},${y2}`;
   }
 
