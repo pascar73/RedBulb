@@ -14,109 +14,113 @@
   // ── Layout constants ──
   const NODE_W = 80;
   const NODE_H = 44;
-  const CONNECTOR_R = 4;
-  const IO_R = 5;           // Input/output green dot radius
-  const LIBRARY_W = 160;    // Right sidebar width
-  const CANVAS_PAD = 24;
+  const NODE_GAP = 16;
+  const IO_R = 5;
+  const LIBRARY_W = 150;
 
-  // ── Canvas state ──
+  // ── Fixed canvas coordinate space ──
+  // Canvas size is determined by node count, NOT by node positions.
+  // This prevents I/O connectors from moving when nodes are dragged.
+  const CANVAS_LEFT_PAD = 30;   // space for input connector
+  const CANVAS_RIGHT_PAD = 30;  // space for output connector
+  const CANVAS_TOP_PAD = 16;
+  const CANVAS_BOTTOM_PAD = 16;
+
+  const canvasW = $derived(CANVAS_LEFT_PAD + graph.nodes.length * (NODE_W + NODE_GAP) + CANVAS_RIGHT_PAD);
+  const canvasH = CANVAS_TOP_PAD + NODE_H + CANVAS_BOTTOM_PAD;
+
+  // Fixed I/O connector positions (never move)
+  const inputPos = { x: 8, y: CANVAS_TOP_PAD + NODE_H / 2 };
+  const outputX = $derived(canvasW - 8);
+  const outputY = CANVAS_TOP_PAD + NODE_H / 2;
+
+  // ── Canvas viewport tracking ──
   let canvasEl = $state<HTMLDivElement | undefined>(undefined);
-  let canvasRect = $state({ width: 400, height: 120 });
+  let viewportW = $state(400);
+  let viewportH = $state(120);
 
-  // ── Drag from library state ──
-  let dragFromLibrary = $state<NodeType | null>(null);
-  let dropIndicator = $state<{ x: number; y: number } | null>(null);
-
-  // ── Node drag state ──
-  let draggingNode = $state<string | null>(null);
-  let dragOffset = { x: 0, y: 0 };
-
-  // Track canvas element size with ResizeObserver
   $effect(() => {
     if (!canvasEl) return;
     const ro = new ResizeObserver(entries => {
       for (const e of entries) {
-        canvasRect = { width: e.contentRect.width, height: e.contentRect.height };
+        viewportW = e.contentRect.width;
+        viewportH = e.contentRect.height;
       }
     });
     ro.observe(canvasEl);
     return () => ro.disconnect();
   });
 
-  // ── Computed bounds ──
-  const graphBounds = $derived.by(() => {
-    if (graph.nodes.length === 0) return { minX: 0, minY: 0, maxX: 400, maxY: 200 };
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const n of graph.nodes) {
-      minX = Math.min(minX, n.position.x);
-      minY = Math.min(minY, n.position.y);
-      maxX = Math.max(maxX, n.position.x + NODE_W);
-      maxY = Math.max(maxY, n.position.y + NODE_H);
-    }
-    return { minX: minX - CANVAS_PAD, minY: minY - CANVAS_PAD, maxX: maxX + CANVAS_PAD, maxY: maxY + CANVAS_PAD };
-  });
-
-  const canvasW = $derived(Math.max(400, graphBounds.maxX - graphBounds.minX + CANVAS_PAD * 2 + IO_R * 4));
-  const canvasH = $derived(Math.max(120, graphBounds.maxY - graphBounds.minY + CANVAS_PAD * 2));
-
-  // Auto-zoom: scale node graph to fill the canvas viewport
+  // Auto-zoom: fit the fixed canvas into the viewport
   const autoZoom = $derived.by(() => {
-    if (canvasRect.width < 10 || canvasRect.height < 10) return 1;
-    const scaleX = canvasRect.width / canvasW;
-    const scaleY = canvasRect.height / canvasH;
-    return Math.min(2.5, Math.max(0.25, Math.min(scaleX, scaleY)));
+    if (viewportW < 10 || viewportH < 10) return 1;
+    const sx = viewportW / canvasW;
+    const sy = viewportH / canvasH;
+    return Math.min(2, Math.max(0.3, Math.min(sx, sy)));
   });
 
-  // Input/output connector positions (green dots)
-  const inputPos = $derived({ x: 6, y: canvasH / 2 });
-  const outputPos = $derived({ x: canvasW - 6, y: canvasH / 2 });
-
-  // Report dimensions
+  // Report dimensions for floating panel
   $effect(() => {
     onDimensionsChange?.(canvasW + LIBRARY_W, canvasH);
   });
 
-  // ── Node center helpers ──
-  function nodeLeft(n: ProcessingNode) { return n.position.x; }
-  function nodeRight(n: ProcessingNode) { return n.position.x + NODE_W; }
-  function nodeCenterY(n: ProcessingNode) { return n.position.y + NODE_H / 2; }
+  // Ensure all nodes have proper initial positions (horizontal row)
+  $effect(() => {
+    const needsLayout = graph.nodes.some((n, i) => {
+      const expectedX = CANVAS_LEFT_PAD + i * (NODE_W + NODE_GAP);
+      return n.position.x === 0 && n.position.y === 0 && i > 0;
+    });
+    if (needsLayout) {
+      const nodes = graph.nodes.map((n, i) => ({
+        ...n,
+        position: { x: CANVAS_LEFT_PAD + i * (NODE_W + NODE_GAP), y: CANVAS_TOP_PAD },
+      }));
+      onGraphChange({ ...graph, nodes });
+    }
+  });
 
-  // ── Wires: connect nodes in serial order (sorted by x position) ──
+  // ── Sorted by x for wire connections ──
   const sortedNodes = $derived([...graph.nodes].sort((a, b) => a.position.x - b.position.x));
 
+  // ── Wires: cubic bezier splines (DaVinci style) ──
+  function bezierPath(x1: number, y1: number, x2: number, y2: number): string {
+    const dx = x2 - x1;
+    const cpx = Math.max(20, Math.abs(dx) * 0.4);
+    return `M${x1},${y1} C${x1 + cpx},${y1} ${x2 - cpx},${y2} ${x2},${y2}`;
+  }
+
   const wires = $derived.by(() => {
-    const result: { x1: number; y1: number; x2: number; y2: number; active: boolean }[] = [];
+    const result: { d: string; active: boolean }[] = [];
     const sorted = sortedNodes;
     if (sorted.length === 0) return result;
 
-    // Input → first node
+    // Input → first node (left connector)
+    const first = sorted[0];
     result.push({
-      x1: inputPos.x, y1: inputPos.y,
-      x2: nodeLeft(sorted[0]), y2: nodeCenterY(sorted[0]),
+      d: bezierPath(inputPos.x, inputPos.y, first.position.x, first.position.y + NODE_H / 2),
       active: true,
     });
 
-    // Node → node
+    // Node → Node
     for (let i = 0; i < sorted.length - 1; i++) {
+      const a = sorted[i], b = sorted[i + 1];
       result.push({
-        x1: nodeRight(sorted[i]), y1: nodeCenterY(sorted[i]),
-        x2: nodeLeft(sorted[i + 1]), y2: nodeCenterY(sorted[i + 1]),
-        active: nodeIsActive(sorted[i]),
+        d: bezierPath(a.position.x + NODE_W, a.position.y + NODE_H / 2, b.position.x, b.position.y + NODE_H / 2),
+        active: nodeIsActive(a),
       });
     }
 
     // Last node → output
     const last = sorted[sorted.length - 1];
     result.push({
-      x1: nodeRight(last), y1: nodeCenterY(last),
-      x2: outputPos.x, y2: outputPos.y,
+      d: bezierPath(last.position.x + NODE_W, last.position.y + NODE_H / 2, outputX, outputY),
       active: nodeIsActive(last),
     });
 
     return result;
   });
 
-  // ── Library: categorized node types ──
+  // ── Library categories ──
   type Category = { label: string; types: NodeType[] };
   const categories: Category[] = [
     { label: 'Light', types: ['exposure', 'contrast', 'curves', 'filmicToneMap'] },
@@ -130,75 +134,76 @@
   }
 
   // ── Drag from library ──
-  function handleLibraryDragStart(type: NodeType, e: DragEvent) {
+  function handleLibDragStart(type: NodeType, e: DragEvent) {
     dragFromLibrary = type;
     e.dataTransfer!.effectAllowed = 'copy';
     e.dataTransfer!.setData('text/plain', type);
   }
 
+  let dragFromLibrary = $state<NodeType | null>(null);
+  let dropIndicator = $state<{ x: number; y: number } | null>(null);
+
   function handleCanvasDragOver(e: DragEvent) {
     if (!dragFromLibrary) return;
     e.preventDefault();
-    e.dataTransfer!.dropEffect = 'copy';
     const rect = canvasEl?.getBoundingClientRect();
     if (rect) {
-      dropIndicator = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      dropIndicator = { x: (e.clientX - rect.left) / autoZoom, y: (e.clientY - rect.top) / autoZoom };
     }
   }
 
   function handleCanvasDrop(e: DragEvent) {
     e.preventDefault();
     if (!dragFromLibrary || !canvasEl) { dragFromLibrary = null; dropIndicator = null; return; }
-
     const rect = canvasEl.getBoundingClientRect();
-    const dropX = e.clientX - rect.left;
-    const dropY = e.clientY - rect.top;
+    const dropX = (e.clientX - rect.left) / autoZoom - NODE_W / 2;
+    const dropY = (e.clientY - rect.top) / autoZoom - NODE_H / 2;
 
     const newNode = createNode(dragFromLibrary, {
-      position: { x: dropX - NODE_W / 2, y: dropY - NODE_H / 2 },
+      position: { x: Math.max(CANVAS_LEFT_PAD, dropX), y: Math.max(CANVAS_TOP_PAD, dropY) },
     });
-
-    // If first node, center it
-    const nodes = [...graph.nodes, newNode];
-    onGraphChange({ ...graph, nodes });
+    onGraphChange({ ...graph, nodes: [...graph.nodes, newNode] });
     onSelectNode(newNode.id);
-
     dragFromLibrary = null;
     dropIndicator = null;
   }
 
-  function handleCanvasDragLeave() {
-    dropIndicator = null;
-  }
+  // ── Node drag ──
+  let draggingNode = $state<string | null>(null);
+  let dragOffset = { x: 0, y: 0 };
 
-  // ── Node drag on canvas ──
   function handleNodeMouseDown(nodeId: string, e: MouseEvent) {
     e.stopPropagation();
-    const node = graph.nodes.find(n => n.id === nodeId);
-    if (!node) return;
     draggingNode = nodeId;
-    dragOffset = { x: e.offsetX, y: e.offsetY };
     onSelectNode(nodeId);
 
-    function onMouseMove(ev: MouseEvent) {
+    const node = graph.nodes.find(n => n.id === nodeId);
+    if (!node || !canvasEl) return;
+
+    const rect = canvasEl.getBoundingClientRect();
+    dragOffset = {
+      x: (e.clientX - rect.left) / autoZoom - node.position.x,
+      y: (e.clientY - rect.top) / autoZoom - node.position.y,
+    };
+
+    function onMove(ev: MouseEvent) {
       if (!draggingNode || !canvasEl) return;
-      const rect = canvasEl.getBoundingClientRect();
-      const x = ev.clientX - rect.left - dragOffset.x;
-      const y = ev.clientY - rect.top - dragOffset.y;
+      const r = canvasEl.getBoundingClientRect();
+      const x = (ev.clientX - r.left) / autoZoom - dragOffset.x;
+      const y = (ev.clientY - r.top) / autoZoom - dragOffset.y;
       const nodes = graph.nodes.map(n =>
         n.id === draggingNode ? { ...n, position: { x: Math.max(0, x), y: Math.max(0, y) } } : n
       );
       onGraphChange({ ...graph, nodes });
     }
 
-    function onMouseUp() {
+    function onUp() {
       draggingNode = null;
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
     }
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   }
 
   function toggleNode(id: string) {
@@ -207,131 +212,102 @@
   }
 
   function removeNode(id: string) {
-    const nodes = graph.nodes.filter(n => n.id !== id);
-    onGraphChange({ ...graph, nodes });
+    onGraphChange({ ...graph, nodes: graph.nodes.filter(n => n.id !== id) });
     if (selectedNodeId === id) onSelectNode(null);
   }
 
   function handleCanvasClick(e: MouseEvent) {
-    // Click on empty canvas = deselect
-    if (e.target === canvasEl || (e.target as HTMLElement)?.classList?.contains('canvas-svg')) {
-      onSelectNode(null);
-    }
+    if ((e.target as HTMLElement)?.closest('.node-box') || (e.target as HTMLElement)?.closest('.node-library')) return;
+    onSelectNode(null);
   }
 </script>
 
-<div class="node-editor-root">
-  <!-- Canvas area -->
+<div class="node-editor-root" onclick={handleCanvasClick}>
+  <!-- Graph canvas -->
   <div
     class="node-canvas"
     bind:this={canvasEl}
     ondragover={handleCanvasDragOver}
     ondrop={handleCanvasDrop}
-    ondragleave={handleCanvasDragLeave}
-    onclick={handleCanvasClick}
+    ondragleave={() => dropIndicator = null}
     role="application"
   >
-    <!-- Scaled graph content -->
-    <div class="graph-scale-wrapper" style="transform: scale({autoZoom}); transform-origin: 0 0; width: {canvasW}px; height: {canvasH}px;">
-    <!-- SVG layer: wires + I/O dots -->
-    <svg class="canvas-svg" width={canvasW} height={canvasH} viewBox="0 0 {canvasW} {canvasH}">
-      <!-- Wires -->
-      {#each wires as wire}
-        <line
-          x1={wire.x1} y1={wire.y1} x2={wire.x2} y2={wire.y2}
-          stroke={wire.active ? 'rgba(140, 180, 140, 0.5)' : 'rgba(80, 80, 80, 0.4)'}
-          stroke-width="1.5"
-        />
-      {/each}
+    <div class="graph-scaler" style="transform: translate({(viewportW - canvasW * autoZoom) / 2}px, {(viewportH - canvasH * autoZoom) / 2}px) scale({autoZoom}); width: {canvasW}px; height: {canvasH}px;">
+      <!-- SVG wires + connectors -->
+      <svg class="wire-svg" width={canvasW} height={canvasH}>
+        {#each wires as wire}
+          <path d={wire.d} fill="none"
+            stroke={wire.active ? '#7aad7a' : 'rgba(80,80,80,0.4)'}
+            stroke-width="1.5" />
+        {/each}
 
-      <!-- Input connector (green dot) -->
-      <circle cx={inputPos.x} cy={inputPos.y} r={IO_R}
-        fill="#4a8" stroke="#6c6" stroke-width="1.5" />
+        <!-- Input green dot -->
+        <circle cx={inputPos.x} cy={inputPos.y} r={IO_R} fill="#4a8" stroke="#6c6" stroke-width="1.5" />
+        <!-- Output green dot -->
+        <circle cx={outputX} cy={outputY} r={IO_R} fill="#4a8" stroke="#6c6" stroke-width="1.5" />
 
-      <!-- Output connector (green dot) -->
-      <circle cx={outputPos.x} cy={outputPos.y} r={IO_R}
-        fill="#4a8" stroke="#6c6" stroke-width="1.5" />
-
-      <!-- Drop indicator -->
-      {#if dropIndicator}
-        <rect
-          x={dropIndicator.x - NODE_W / 2} y={dropIndicator.y - NODE_H / 2}
-          width={NODE_W} height={NODE_H}
-          rx="4" fill="none" stroke="rgba(100, 180, 255, 0.5)" stroke-width="1.5" stroke-dasharray="4 3"
-        />
-      {/if}
-    </svg>
-
-    <!-- Node boxes (HTML overlay) -->
-    {#each graph.nodes as node (node.id)}
-      {@const def = NODE_REGISTRY[node.type]}
-      {@const active = nodeIsActive(node)}
-      {@const selected = selectedNodeId === node.id}
-      {@const idx = sortedNodes.findIndex(n => n.id === node.id) + 1}
-      <div
-        class="node-box"
-        class:active
-        class:selected
-        class:disabled={!node.enabled}
-        style="left: {node.position.x}px; top: {node.position.y}px; width: {NODE_W}px; height: {NODE_H}px;"
-        onmousedown={(e) => handleNodeMouseDown(node.id, e)}
-        ondblclick={() => toggleNode(node.id)}
-        role="button"
-        tabindex="0"
-      >
-        <!-- Left connector (green input) -->
-        <div class="node-connector left">
-          <svg width="8" height="8"><polygon points="0,0 8,4 0,8" fill="#4a8"/></svg>
-        </div>
-
-        <!-- Node content -->
-        <div class="node-content">
-          <span class="node-icon">{def?.icon ?? '⬜'}</span>
-          <span class="node-label">{node.label}</span>
-        </div>
-
-        <!-- Right connector (green output) -->
-        <div class="node-connector right">
-          <svg width="6" height="6"><rect width="6" height="6" rx="1" fill="#4a8"/></svg>
-        </div>
-
-        <!-- Node number badge -->
-        <div class="node-number">{String(idx).padStart(2, '0')}</div>
-
-        <!-- Remove button (selected only) -->
-        {#if selected}
-          <button class="node-remove" onclick={(e) => { e.stopPropagation(); removeNode(node.id); }}>×</button>
+        {#if dropIndicator}
+          <rect x={dropIndicator.x - NODE_W/2} y={dropIndicator.y - NODE_H/2}
+            width={NODE_W} height={NODE_H} rx="4"
+            fill="none" stroke="rgba(100,180,255,0.5)" stroke-width="1.5" stroke-dasharray="4 3" />
         {/if}
-      </div>
-    {/each}
+      </svg>
 
-    </div><!-- end graph-scale-wrapper -->
-  </div><!-- end node-canvas -->
+      <!-- Node boxes -->
+      {#each graph.nodes as node (node.id)}
+        {@const def = NODE_REGISTRY[node.type]}
+        {@const active = nodeIsActive(node)}
+        {@const selected = selectedNodeId === node.id}
+        {@const idx = sortedNodes.findIndex(n => n.id === node.id) + 1}
+        <div
+          class="node-box"
+          class:active class:selected class:disabled={!node.enabled}
+          style="left:{node.position.x}px; top:{node.position.y}px; width:{NODE_W}px; height:{NODE_H}px;"
+          onmousedown={(e) => handleNodeMouseDown(node.id, e)}
+          ondblclick={() => toggleNode(node.id)}
+          role="button" tabindex="0"
+        >
+          <!-- Left connector -->
+          <div class="conn conn-l">
+            <svg width="8" height="8"><polygon points="0,0 8,4 0,8" fill="#4a8"/></svg>
+          </div>
+          <div class="node-inner">
+            <span class="node-icon">{def?.icon ?? '⬜'}</span>
+            <span class="node-label">{node.label}</span>
+          </div>
+          <!-- Right connector -->
+          <div class="conn conn-r">
+            <svg width="6" height="6"><rect width="6" height="6" rx="1" fill="#4a8"/></svg>
+          </div>
+          <div class="node-num">{String(idx).padStart(2, '0')}</div>
+          {#if selected}
+            <button class="node-del" onclick={(e) => { e.stopPropagation(); removeNode(node.id); }}>×</button>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  </div>
 
   <!-- Library sidebar -->
   <div class="node-library">
-    <div class="library-header">Library</div>
-    <div class="library-list">
+    <div class="lib-header">Library</div>
+    <div class="lib-list">
       {#each categories as cat}
-        <div class="library-category">
-          <div class="category-label">{cat.label}</div>
-          <div class="category-items">
-            {#each cat.types as type}
-              {@const def = NODE_REGISTRY[type]}
-              {@const inGraph = isNodeInGraph(type)}
-              <div
-                class="library-item"
-                class:in-graph={inGraph}
-                draggable={!inGraph}
-                ondragstart={(e) => handleLibraryDragStart(type, e)}
-                ondragend={() => { dragFromLibrary = null; dropIndicator = null; }}
-                title={inGraph ? `${def.label} (already in graph)` : `Drag to add ${def.label}`}
-              >
-                <span class="lib-icon">{def.icon}</span>
-                <span class="lib-name">{def.label}</span>
-              </div>
-            {/each}
-          </div>
+        <div class="lib-cat">
+          <div class="cat-label">{cat.label}</div>
+          {#each cat.types as type}
+            {@const def = NODE_REGISTRY[type]}
+            {@const inGraph = isNodeInGraph(type)}
+            <div
+              class="lib-item" class:used={inGraph}
+              draggable={!inGraph}
+              ondragstart={(e) => handleLibDragStart(type, e)}
+              ondragend={() => { dragFromLibrary = null; dropIndicator = null; }}
+            >
+              <span>{def.icon}</span>
+              <span class="lib-name">{def.label}</span>
+            </div>
+          {/each}
         </div>
       {/each}
     </div>
@@ -344,49 +320,49 @@
     width: 100%;
     height: 100%;
     min-height: 80px;
+    background: rgba(0,0,0,0.15);
+    border-radius: 4px;
+    overflow: hidden;
   }
 
-  /* ── Canvas ── */
   .node-canvas {
     flex: 1 1 0;
+    overflow: hidden;
     position: relative;
-    overflow: auto;
-    background:
-      radial-gradient(circle at 50% 50%, rgba(30, 35, 45, 1) 0%, rgba(18, 18, 24, 1) 100%);
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.08) transparent;
+    background: radial-gradient(ellipse at 50% 50%, rgba(30,35,45,1) 0%, rgba(18,18,24,1) 100%);
   }
-  .graph-scale-wrapper {
-    position: relative;
-  }
-  .canvas-svg {
+
+  .graph-scaler {
     position: absolute;
     top: 0;
     left: 0;
+    transform-origin: 0 0;
+  }
+
+  .wire-svg {
+    position: absolute;
+    top: 0; left: 0;
     pointer-events: none;
   }
 
-  /* ── Nodes ── */
+  /* Nodes */
   .node-box {
     position: absolute;
     display: flex;
     align-items: center;
     border-radius: 4px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(35, 38, 48, 0.95);
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(35,38,48,0.95);
     cursor: grab;
     user-select: none;
     transition: border-color 0.12s, box-shadow 0.12s;
   }
-  .node-box:hover { border-color: rgba(255, 255, 255, 0.2); }
-  .node-box.active { border-color: rgba(100, 170, 130, 0.4); }
-  .node-box.selected {
-    border-color: rgba(100, 180, 255, 0.7);
-    box-shadow: 0 0 6px rgba(100, 180, 255, 0.25);
-  }
+  .node-box:hover { border-color: rgba(255,255,255,0.2); }
+  .node-box.active { border-color: rgba(100,170,130,0.4); }
+  .node-box.selected { border-color: rgba(100,180,255,0.7); box-shadow: 0 0 6px rgba(100,180,255,0.25); }
   .node-box.disabled { opacity: 0.35; border-style: dashed; }
 
-  .node-content {
+  .node-inner {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -396,110 +372,38 @@
     overflow: hidden;
   }
   .node-icon { font-size: 13px; line-height: 1; }
-  .node-label {
-    font-size: 8px;
-    color: #999;
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 68px;
-  }
+  .node-label { font-size: 8px; color: #999; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 68px; }
   .node-box.selected .node-label { color: #ddd; }
 
-  .node-connector {
-    position: absolute;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .node-connector.left { left: -5px; top: 50%; transform: translateY(-50%); }
-  .node-connector.right { right: -5px; top: 50%; transform: translateY(-50%); }
+  .conn { position: absolute; display: flex; align-items: center; justify-content: center; }
+  .conn-l { left: -5px; top: 50%; transform: translateY(-50%); }
+  .conn-r { right: -5px; top: 50%; transform: translateY(-50%); }
 
-  .node-number {
-    position: absolute;
-    bottom: -1px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 7px;
-    color: #666;
-    font-family: 'SF Mono', monospace;
-    background: rgba(20, 20, 28, 0.8);
-    padding: 0 3px;
-    border-radius: 2px;
+  .node-num {
+    position: absolute; bottom: -1px; left: 50%; transform: translateX(-50%);
+    font-size: 7px; color: #555; font-family: monospace;
+    background: rgba(20,20,28,0.8); padding: 0 3px; border-radius: 2px;
+  }
+  .node-del {
+    position: absolute; top: -6px; right: -6px; width: 14px; height: 14px;
+    border-radius: 50%; border: 1px solid rgba(255,80,80,0.5);
+    background: rgba(200,40,40,0.85); color: white; font-size: 10px;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
   }
 
-  .node-remove {
-    position: absolute;
-    top: -6px; right: -6px;
-    width: 14px; height: 14px;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 80, 80, 0.5);
-    background: rgba(200, 40, 40, 0.85);
-    color: white;
-    font-size: 10px;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-  .node-remove:hover { background: rgba(255, 40, 40, 1); }
-
-  /* ── Library sidebar ── */
+  /* Library */
   .node-library {
-    width: 160px;
-    flex-shrink: 0;
-    border-left: 1px solid rgba(255, 255, 255, 0.06);
-    background: rgba(22, 22, 30, 0.98);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    width: 150px; flex-shrink: 0;
+    border-left: 1px solid rgba(255,255,255,0.06);
+    background: rgba(22,22,30,0.98);
+    display: flex; flex-direction: column; overflow: hidden;
   }
-  .library-header {
-    padding: 6px 10px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #bbb;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    flex-shrink: 0;
-  }
-  .library-list {
-    flex: 1 1 0;
-    overflow-y: auto;
-    padding: 4px 0;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.08) transparent;
-  }
-  .library-category {
-    margin-bottom: 2px;
-  }
-  .category-label {
-    padding: 4px 10px 2px;
-    font-size: 9px;
-    font-weight: 600;
-    color: #666;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  .category-items {
-    display: flex;
-    flex-direction: column;
-  }
-  .library-item {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 3px 10px;
-    cursor: grab;
-    transition: background 0.1s;
-  }
-  .library-item:hover { background: rgba(100, 180, 255, 0.08); }
-  .library-item.in-graph {
-    opacity: 0.35;
-    cursor: default;
-  }
-  .lib-icon { font-size: 11px; }
-  .lib-name { font-size: 10px; color: #aaa; }
-  .library-item.in-graph .lib-name { color: #666; }
+  .lib-header { padding: 6px 10px; font-size: 11px; font-weight: 600; color: #bbb; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .lib-list { flex: 1; overflow-y: auto; padding: 4px 0; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; }
+  .lib-cat { margin-bottom: 2px; }
+  .cat-label { padding: 4px 10px 2px; font-size: 9px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.05em; }
+  .lib-item { display: flex; align-items: center; gap: 5px; padding: 3px 10px; cursor: grab; font-size: 10px; color: #aaa; }
+  .lib-item:hover { background: rgba(100,180,255,0.08); }
+  .lib-item.used { opacity: 0.35; cursor: default; }
+  .lib-name { font-size: 10px; }
 </style>
