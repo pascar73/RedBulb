@@ -600,46 +600,109 @@ function applyFilmGrain(
   data: Uint8ClampedArray, w: number, h: number,
   amount: number, size: number, roughness: number, seed: number,
 ): void {
-  const pixelCount = w * h;
-  const roughMult = 0.5 + (roughness / 100) * 2; // 0.5x to 2.5x noise contrast
-  const intensity = amount * 50 * roughMult; // noise amplitude in pixel values
+  // Improved film grain — multi-octave noise with bilinear interpolation
+  // for organic texture, plus per-channel color variation (like real film stock).
+  //
+  // Real film grain comes from silver halide crystals that vary in size.
+  // Larger grains = more visible grain (ISO 800+), finer grains = smoother (ISO 100).
+  // The "roughness" parameter controls frequency mix: low = smooth/fine, high = harsh/clumpy.
 
-  // Generate noise at potentially reduced resolution for "size" effect
-  const sizeScale = Math.max(1, Math.round(size / 15)); // 1-6x downscale
-  const nw = Math.ceil(w / sizeScale);
-  const nh = Math.ceil(h / sizeScale);
-  const noise = new Float32Array(nw * nh);
+  const roughMult = 0.5 + (roughness / 100) * 2.0; // 0.5x to 2.5x
+  const intensity = amount * 45 * roughMult;
 
-  // Seeded PRNG for deterministic grain
+  // Film grain has slight color variation — each color layer has independent noise
+  // (real film has separate R/G/B emulsion layers with different grain structures)
+  const colorVariation = 0.15 + (roughness / 100) * 0.25; // 15-40% color noise
+
+  // Seeded PRNG — fast LCG
   let s = Math.abs(seed) || 42;
-  for (let i = 0; i < noise.length; i++) {
-    // Box-Muller transform for Gaussian distribution (film-like)
+  function nextRand(): number {
     s = (s * 1664525 + 1013904223) & 0x7FFFFFFF;
-    const u1 = ((s >> 8) & 0xFFFF) / 65536 + 0.0001;
-    s = (s * 1664525 + 1013904223) & 0x7FFFFFFF;
-    const u2 = ((s >> 8) & 0xFFFF) / 65536;
-    noise[i] = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    return ((s >> 8) & 0xFFFF) / 65536;
+  }
+  // Box-Muller for Gaussian
+  function gaussRand(): number {
+    const u1 = nextRand() + 0.0001;
+    const u2 = nextRand();
+    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
   }
 
-  // Apply noise to each pixel — modulate by luminance (darker = more grain, like real film)
+  // Generate multi-octave noise for organic texture
+  // Octave 1: base grain at "size" resolution
+  // Octave 2: finer detail at 2x resolution (adds texture variation)
+  // Octave 3: coarse clumping at 0.5x resolution (adds organic clusters)
+  const sizeScale1 = Math.max(1, Math.round(size / 12));
+  const sizeScale2 = Math.max(1, Math.round(sizeScale1 / 2)); // finer
+  const sizeScale3 = Math.min(w, Math.round(sizeScale1 * 2.5)); // coarser
+
+  function generateNoiseLayer(scale: number): Float32Array {
+    const nw = Math.ceil(w / scale) + 1; // +1 for bilinear edge
+    const nh = Math.ceil(h / scale) + 1;
+    const layer = new Float32Array(nw * nh);
+    for (let i = 0; i < layer.length; i++) {
+      layer[i] = gaussRand();
+    }
+    return layer;
+  }
+
+  // Bilinear sample from a noise layer
+  function sampleBilinear(layer: Float32Array, lw: number, x: number, y: number, scale: number): number {
+    const fx = x / scale;
+    const fy = y / scale;
+    const x0 = Math.floor(fx), y0 = Math.floor(fy);
+    const x1 = x0 + 1, y1 = y0 + 1;
+    const dx = fx - x0, dy = fy - y0;
+    const v00 = layer[y0 * lw + x0] || 0;
+    const v10 = layer[y0 * lw + x1] || 0;
+    const v01 = layer[y1 * lw + x0] || 0;
+    const v11 = layer[y1 * lw + x1] || 0;
+    return (v00 * (1 - dx) * (1 - dy) + v10 * dx * (1 - dy) +
+            v01 * (1 - dx) * dy + v11 * dx * dy);
+  }
+
+  const lw1 = Math.ceil(w / sizeScale1) + 1;
+  const lw2 = Math.ceil(w / sizeScale2) + 1;
+  const lw3 = Math.ceil(w / sizeScale3) + 1;
+
+  // 3 octaves × 3 channels (R, G, B have slightly different grain)
+  const noiseL1 = generateNoiseLayer(sizeScale1); // base luma
+  const noiseL2 = generateNoiseLayer(sizeScale2); // fine detail
+  const noiseL3 = generateNoiseLayer(sizeScale3); // coarse clumps
+  // Per-channel variation layers (only need one octave for color)
+  const noiseR = generateNoiseLayer(sizeScale1);
+  const noiseG = generateNoiseLayer(sizeScale1);
+  const noiseB = generateNoiseLayer(sizeScale1);
+
   for (let y = 0; y < h; y++) {
-    const ny = Math.min(nh - 1, Math.floor(y / sizeScale));
     for (let x = 0; x < w; x++) {
-      const nx = Math.min(nw - 1, Math.floor(x / sizeScale));
-      const n = noise[ny * nw + nx] * intensity;
+      // Multi-octave luminance noise: 60% base + 25% fine + 15% coarse
+      const n1 = sampleBilinear(noiseL1, lw1, x, y, sizeScale1);
+      const n2 = sampleBilinear(noiseL2, lw2, x, y, sizeScale2);
+      const n3 = sampleBilinear(noiseL3, lw3, x, y, sizeScale3);
+      const lumaGrain = (0.60 * n1 + 0.25 * n2 + 0.15 * n3) * intensity;
+
+      // Per-channel color variation (independent noise per emulsion layer)
+      const rVar = sampleBilinear(noiseR, lw1, x, y, sizeScale1) * intensity * colorVariation;
+      const gVar = sampleBilinear(noiseG, lw1, x, y, sizeScale1) * intensity * colorVariation;
+      const bVar = sampleBilinear(noiseB, lw1, x, y, sizeScale1) * intensity * colorVariation;
 
       const idx = (y * w + x) * 4;
       const r = data[idx], g = data[idx + 1], b = data[idx + 2];
 
-      // Film grain is stronger in midtones, weaker in deep shadows and highlights
+      // Film grain is strongest in midtones (silver halide response curve)
+      // Shadows: reduced grain (underexposed = fewer developed crystals)
+      // Highlights: reduced grain (overexposed = saturated response)
       const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-      const midtoneBias = 4 * lum * (1 - lum); // parabola: 0 at black/white, 1 at mid-gray
+      // Asymmetric bias: slightly more grain in shadows than highlights (like real film)
+      const shadowBias = Math.pow(lum, 0.7);
+      const highlightBias = Math.pow(1 - lum, 0.5);
+      const midtoneBias = 2.8 * shadowBias * highlightBias;
 
-      const grainVal = n * (0.3 + 0.7 * midtoneBias);
+      const grainMod = 0.25 + 0.75 * midtoneBias;
 
-      data[idx]     = clamp255(r + grainVal);
-      data[idx + 1] = clamp255(g + grainVal);
-      data[idx + 2] = clamp255(b + grainVal);
+      data[idx]     = clamp255(r + (lumaGrain + rVar) * grainMod);
+      data[idx + 1] = clamp255(g + (lumaGrain + gVar) * grainMod);
+      data[idx + 2] = clamp255(b + (lumaGrain + bVar) * grainMod);
     }
   }
 }

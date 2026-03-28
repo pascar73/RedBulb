@@ -1,6 +1,7 @@
 <script lang="ts">
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
   import { editManager } from '$lib/managers/edit/edit-manager.svelte';
+  import { saveVersion, listVersions } from '$lib/managers/edit/develop-history-api';
   import ToneCurve from './tone-curve.svelte';
   import HslPanel from './hsl-panel.svelte';
   import ColorWheels from './color-wheels.svelte';
@@ -20,7 +21,7 @@
     saveTimeout = setTimeout(() => { saveStatus = 'idle'; }, 2000);
   }
 
-  // Auto-save on changes (debounced)
+  // Auto-save on changes (debounced to localStorage — 3s)
   let autoSaveTimeout: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
     const _changes = developManager.hasChanges;
@@ -29,8 +30,146 @@
     if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
     autoSaveTimeout = setTimeout(() => {
       developManager.saveToStorage(asset.id);
-    }, 3000); // Auto-save after 3 seconds of inactivity
+    }, 3000);
   });
+
+  // ── Phase C: Auto-checkpoint to sidecar API every 30 seconds ──
+  let autoCheckpointTimer: ReturnType<typeof setInterval> | undefined;
+  let lastCheckpointHash = $state('');
+
+  function computeStateHash(state: Record<string, unknown>): string {
+    return JSON.stringify(state);
+  }
+
+  async function autoCheckpoint() {
+    const asset = editManager.currentAsset;
+    if (!asset || !developManager.hasChanges) return;
+    const state = developManager.serialize();
+    const hash = computeStateHash(state);
+    if (hash === lastCheckpointHash) return; // No change since last checkpoint
+    try {
+      await saveVersion(asset.id, state, { isAutoCheckpoint: true });
+      lastCheckpointHash = hash;
+    } catch (e) {
+      console.warn('[auto-checkpoint] Failed:', e);
+    }
+  }
+
+  $effect(() => {
+    // Start checkpoint timer when component mounts
+    autoCheckpointTimer = setInterval(autoCheckpoint, 30_000);
+    return () => { if (autoCheckpointTimer) clearInterval(autoCheckpointTimer); };
+  });
+
+  // ── Phase D: XMP export ──
+  function generateXMP(): string {
+    const state = developManager.serialize() as any;
+    const b = state.basic || {};
+    const c = state.color || {};
+    const d = state.details || {};
+    const e = state.effects || {};
+
+    // Build XMP-compatible XML
+    return `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      xmlns:rb="http://redbulb.app/ns/1.0/"
+      crs:Version="16.0"
+      crs:ProcessVersion="15.4"
+      crs:Exposure2012="${(b.exposure ?? 0).toFixed(2)}"
+      crs:Contrast2012="${Math.round((b.contrast ?? 0) * 100)}"
+      crs:Highlights2012="${Math.round((b.highlights ?? 0) * 100)}"
+      crs:Shadows2012="${Math.round((b.shadows ?? 0) * 100)}"
+      crs:Whites2012="${Math.round((b.whites ?? 0) * 100)}"
+      crs:Blacks2012="${Math.round((b.blacks ?? 0) * 100)}"
+      crs:Brightness="${Math.round((b.brightness ?? 0) * 100)}"
+      crs:Temperature="${Math.round((c.temperature ?? 0) * 100)}"
+      crs:Tint="${Math.round((c.tint ?? 0) * 100)}"
+      crs:Vibrance="${Math.round((c.vibrance ?? 0) * 100)}"
+      crs:Saturation="${Math.round((c.saturation ?? 0) * 100)}"
+      crs:Clarity2012="${Math.round((d.clarity ?? 0) * 100)}"
+      crs:Dehaze="${Math.round((d.dehaze ?? 0) * 100)}"
+      crs:Sharpness="${Math.round((d.sharpness ?? 0) * 100)}"
+      crs:LuminanceSmoothing="${Math.round((d.noiseReduction ?? 0) * 100)}"
+      crs:PostCropVignetteAmount="${Math.round((e.vignette ?? 0) * 100)}"
+      crs:PostCropVignetteMidpoint="${e.vignetteMidpoint ?? 50}"
+      crs:PostCropVignetteFeather="${e.vignetteFeather ?? 50}"
+      crs:PostCropVignetteRoundness="${e.vignetteRoundness ?? 0}"
+      crs:PostCropVignetteHighlightRecovery="${e.vignetteHighlights ?? 0}"
+      crs:GrainAmount="${Math.round((e.grain ?? 0) * 100)}"
+      crs:GrainSize="${e.grainSize ?? 25}"
+      crs:GrainFrequency="${e.grainRoughness ?? 50}"
+      rb:ToneMapper="${state.toneMapper ?? 'none'}"
+      rb:Texture="${Math.round((e.texture ?? 0) * 100)}"
+      rb:Fade="${Math.round((e.fade ?? 0) * 100)}"
+      rb:ChromaticAberration="${Math.round((d.caCorrection ?? 0) * 100)}"
+    >
+      ${generateXMPCurves(state)}
+      ${generateXMPColorWheels(state)}
+      ${generateXMPHSL(state)}
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`;
+  }
+
+  function generateXMPCurves(state: any): string {
+    const curves = state.curves || {};
+    const endpoints = state.curveEndpoints || {};
+    const parts: string[] = [];
+    for (const ch of ['master', 'red', 'green', 'blue']) {
+      const pts = curves[ch] || [];
+      const ep = endpoints[ch] || { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } };
+      if (pts.length === 0 && ep.black.x === 0 && ep.black.y === 0 && ep.white.x === 1 && ep.white.y === 1) continue;
+      // Adobe CRS uses ParametricShadows/etc for parametric, ToneCurve for point curves
+      // We use the custom rb: namespace for our curves
+      const allPts = [{ x: ep.black.x, y: ep.black.y }, ...pts, { x: ep.white.x, y: ep.white.y }];
+      const ptStr = allPts.map(p => `${p.x.toFixed(4)}, ${p.y.toFixed(4)}`).join(', ');
+      parts.push(`<rb:ToneCurve${ch.charAt(0).toUpperCase() + ch.slice(1)}>${ptStr}</rb:ToneCurve${ch.charAt(0).toUpperCase() + ch.slice(1)}>`);
+    }
+    return parts.join('\n      ');
+  }
+
+  function generateXMPColorWheels(state: any): string {
+    const cw = state.colorWheels || {};
+    const parts: string[] = [];
+    for (const zone of ['shadows', 'midtones', 'highlights']) {
+      const w = cw[zone];
+      if (!w || (w.hue === 0 && w.sat === 0 && w.lum === 0)) continue;
+      parts.push(`<rb:ColorGrade${zone.charAt(0).toUpperCase() + zone.slice(1)} rb:Hue="${w.hue}" rb:Sat="${w.sat}" rb:Lum="${w.lum}" />`);
+    }
+    return parts.join('\n      ');
+  }
+
+  function generateXMPHSL(state: any): string {
+    const hsl = state.hsl || {};
+    const channels = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta'];
+    const hasHSL = channels.some(ch => {
+      const v = hsl[ch]; return v && (v.h !== 0 || v.s !== 0 || v.l !== 0);
+    });
+    if (!hasHSL) return '';
+    const parts = channels.map(ch => {
+      const v = hsl[ch] || { h: 0, s: 0, l: 0 };
+      const name = ch.charAt(0).toUpperCase() + ch.slice(1);
+      return `crs:HueAdjustment${name}="${Math.round(v.h)}" crs:SaturationAdjustment${name}="${Math.round(v.s * 100)}" crs:LuminanceAdjustment${name}="${Math.round(v.l * 100)}"`;
+    });
+    return parts.join('\n      ');
+  }
+
+  function exportXMP() {
+    const xmp = generateXMP();
+    const blob = new Blob([xmp], { type: 'application/rdf+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const asset = editManager.currentAsset;
+    const filename = asset?.originalFileName?.replace(/\.[^.]+$/, '') ?? 'image';
+    a.href = url;
+    a.download = `${filename}.xmp`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   interface SliderConfig {
     label: string;
@@ -439,6 +578,16 @@
       </div>
     {/if}
   </div>
+
+  <!-- Export XMP -->
+  <div class="xmp-export-row">
+    <button class="xmp-export-btn" onclick={exportXMP} disabled={!developManager.hasChanges}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Export XMP Sidecar
+    </button>
+  </div>
 </div>
 
 <style>
@@ -807,5 +956,34 @@
   .tone-mapper-btn.active {
     background: rgba(255, 255, 255, 0.12);
     color: #fff;
+  }
+
+  /* XMP Export */
+  .xmp-export-row {
+    padding: 8px 12px 12px;
+  }
+  .xmp-export-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    color: #aaa;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    justify-content: center;
+  }
+  .xmp-export-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+  .xmp-export-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
   }
 </style>
