@@ -7,6 +7,8 @@
   import ColorWheels from './color-wheels.svelte';
   import FloatingPanel from './floating-panel.svelte';
   import HistoryPanel from './history-panel.svelte';
+  import NodeEditor from './node-editor.svelte';
+  import { type NodeGraph, legacyStateToNodeGraph, NODE_REGISTRY, type NodeType } from '../node-types';
 
   let saveStatus = $state<'idle' | 'saved' | 'saving'>('idle');
   let saveTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -156,6 +158,30 @@
       return `crs:HueAdjustment${name}="${Math.round(v.h)}" crs:SaturationAdjustment${name}="${Math.round(v.s * 100)}" crs:LuminanceAdjustment${name}="${Math.round(v.l * 100)}"`;
     });
     return parts.join('\n      ');
+  }
+
+  // ── Node Editor state ──
+  let showNodeEditor = $state(false);
+  let nodeGraph = $state<NodeGraph>(legacyStateToNodeGraph(developManager.serialize()));
+  let selectedNodeId = $state<string | null>(null);
+
+  // Sync node graph when sliders change (legacy → graph bridge)
+  // Only when node editor is visible
+  $effect(() => {
+    if (showNodeEditor) {
+      nodeGraph = legacyStateToNodeGraph(developManager.serialize());
+    }
+  });
+
+  function handleGraphChange(newGraph: NodeGraph) {
+    nodeGraph = newGraph;
+    // Future: sync graph back to develop manager
+    // For Phase 1, the node editor is read-only (reflects slider state)
+    // Write-back will be Phase 1.5
+  }
+
+  function handleSelectNode(id: string | null) {
+    selectedNodeId = id;
   }
 
   function exportXMP() {
@@ -353,6 +379,37 @@
 {/snippet}
 
 <div class="develop-panel">
+  <!-- Node Editor toggle + graph -->
+  <div class="node-editor-section">
+    <button class="node-toggle" class:active={showNodeEditor} onclick={() => showNodeEditor = !showNodeEditor}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="5" cy="12" r="3"/><circle cx="19" cy="12" r="3"/><line x1="8" y1="12" x2="16" y2="12"/>
+      </svg>
+      Node Editor
+      <span class="node-toggle-hint">{showNodeEditor ? '▾' : '▸'}</span>
+    </button>
+    {#if showNodeEditor}
+      <NodeEditor
+        graph={nodeGraph}
+        onGraphChange={handleGraphChange}
+        {selectedNodeId}
+        onSelectNode={handleSelectNode}
+      />
+      {#if selectedNodeId}
+        {@const selNode = nodeGraph.nodes.find(n => n.id === selectedNodeId)}
+        {#if selNode}
+          <div class="selected-node-info">
+            <span class="selected-node-icon">{NODE_REGISTRY[selNode.type as NodeType]?.icon}</span>
+            <span class="selected-node-name">{selNode.label}</span>
+            <span class="selected-node-status" class:active={selNode.enabled}>
+              {selNode.enabled ? 'Active' : 'Bypassed'}
+            </span>
+          </div>
+        {/if}
+      {/if}
+    {/if}
+  </div>
+
   <!-- LIGHT -->
   <div class="section-card">
     {@render sectionHeader('light', 'Light', lightSliders)}
@@ -985,5 +1042,52 @@
   .xmp-export-btn:disabled {
     opacity: 0.3;
     cursor: default;
+  }
+
+  /* Node Editor */
+  .node-editor-section {
+    padding: 0 0 4px;
+  }
+  .node-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    color: #888;
+    font-size: 11px;
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+  .node-toggle:hover, .node-toggle.active {
+    color: #ddd;
+  }
+  .node-toggle-hint {
+    margin-left: auto;
+    font-size: 9px;
+    opacity: 0.5;
+  }
+  .selected-node-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px 6px;
+    font-size: 11px;
+  }
+  .selected-node-icon { font-size: 13px; }
+  .selected-node-name { color: #ccc; font-weight: 500; }
+  .selected-node-status {
+    margin-left: auto;
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(255, 80, 80, 0.15);
+    color: rgba(255, 80, 80, 0.8);
+  }
+  .selected-node-status.active {
+    background: rgba(80, 200, 120, 0.15);
+    color: rgba(80, 200, 120, 0.8);
   }
 </style>
