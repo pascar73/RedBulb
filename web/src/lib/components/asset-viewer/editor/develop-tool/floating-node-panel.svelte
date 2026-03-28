@@ -164,11 +164,9 @@
     </div>
   </div>
 
-  <!-- Graph content with zoom -->
+  <!-- Graph content — fills available space -->
   <div class="graph-viewport">
-    <div class="graph-content" style="transform: scale({graphZoom}); transform-origin: 0 0;">
-      {@render children()}
-    </div>
+    {@render children()}
   </div>
 
   <!-- Footer with opacity -->
@@ -242,13 +240,14 @@
 
   .graph-viewport {
     flex: 1 1 0;
-    overflow: auto;
+    overflow: hidden;
     min-height: 0;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.1) transparent;
+    display: flex;
   }
-  .graph-content {
-    /* zoom applied via inline style */
+  .graph-viewport > :global(*) {
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
   }
 
   .footer-bar {

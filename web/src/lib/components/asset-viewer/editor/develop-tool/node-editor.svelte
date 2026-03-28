@@ -211,7 +211,7 @@
     role="application"
   >
     <!-- SVG layer: wires + I/O dots -->
-    <svg class="canvas-svg" width={canvasW} height={canvasH} viewBox="0 0 {canvasW} {canvasH}">
+    <svg class="canvas-svg" viewBox="0 0 {canvasW} {canvasH}" preserveAspectRatio="xMidYMid meet">
       <!-- Wires -->
       {#each wires as wire}
         <line
@@ -318,7 +318,7 @@
     display: flex;
     width: 100%;
     height: 100%;
-    min-height: 0;
+    min-height: 80px;
   }
 
   /* ── Canvas ── */
@@ -332,7 +332,11 @@
     scrollbar-color: rgba(255,255,255,0.08) transparent;
   }
   .canvas-svg {
-    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     pointer-events: none;
   }
 
