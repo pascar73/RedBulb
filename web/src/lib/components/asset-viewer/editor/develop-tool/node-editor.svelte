@@ -18,21 +18,27 @@
   const IO_R = 5;
   const LIBRARY_W = 150;
 
-  // ── Fixed canvas coordinate space ──
-  // Canvas size is determined by node count, NOT by node positions.
-  // This prevents I/O connectors from moving when nodes are dragged.
-  const CANVAS_LEFT_PAD = 30;   // space for input connector
-  const CANVAS_RIGHT_PAD = 30;  // space for output connector
-  const CANVAS_TOP_PAD = 16;
-  const CANVAS_BOTTOM_PAD = 16;
+  // ── Canvas coordinate space ──
+  // Width based on node count. Height grows to contain all nodes.
+  const CANVAS_LEFT_PAD = 30;
+  const CANVAS_RIGHT_PAD = 30;
+  const MIN_CANVAS_H = 120;
 
   const canvasW = $derived(CANVAS_LEFT_PAD + graph.nodes.length * (NODE_W + NODE_GAP) + CANVAS_RIGHT_PAD);
-  const canvasH = CANVAS_TOP_PAD + NODE_H + CANVAS_BOTTOM_PAD;
 
-  // Fixed I/O connector positions (never move)
-  const inputPos = { x: 8, y: CANVAS_TOP_PAD + NODE_H / 2 };
+  // Canvas height grows to contain all nodes (allows dragging anywhere)
+  const maxNodeY = $derived(graph.nodes.length > 0
+    ? Math.max(...graph.nodes.map(n => n.position.y + NODE_H + 20))
+    : MIN_CANVAS_H);
+  const canvasH = $derived(Math.max(MIN_CANVAS_H, maxNodeY));
+
+  // I/O connectors: fixed X, but Y tracks the vertical center of the chain
+  const avgNodeY = $derived(graph.nodes.length > 0
+    ? graph.nodes.reduce((sum, n) => sum + n.position.y + NODE_H / 2, 0) / graph.nodes.length
+    : canvasH / 2);
+  const inputPos = $derived({ x: 8, y: avgNodeY });
   const outputX = $derived(canvasW - 8);
-  const outputY = CANVAS_TOP_PAD + NODE_H / 2;
+  const outputY = $derived(avgNodeY);
 
   // ── Canvas viewport tracking ──
   let canvasEl = $state<HTMLDivElement | undefined>(undefined);
@@ -64,16 +70,16 @@
     onDimensionsChange?.(canvasW + LIBRARY_W, canvasH);
   });
 
-  // Ensure all nodes have proper initial positions (horizontal row)
+  // Ensure all nodes have proper initial positions (horizontal row at Y=40)
+  const DEFAULT_Y = 40;
   $effect(() => {
     const needsLayout = graph.nodes.some((n, i) => {
-      const expectedX = CANVAS_LEFT_PAD + i * (NODE_W + NODE_GAP);
       return n.position.x === 0 && n.position.y === 0 && i > 0;
     });
     if (needsLayout) {
       const nodes = graph.nodes.map((n, i) => ({
         ...n,
-        position: { x: CANVAS_LEFT_PAD + i * (NODE_W + NODE_GAP), y: CANVAS_TOP_PAD },
+        position: { x: CANVAS_LEFT_PAD + i * (NODE_W + NODE_GAP), y: DEFAULT_Y },
       }));
       onGraphChange({ ...graph, nodes });
     }
@@ -83,9 +89,12 @@
   const sortedNodes = $derived([...graph.nodes].sort((a, b) => a.position.x - b.position.x));
 
   // ── Wires: cubic bezier splines (DaVinci style) ──
+  // Horizontal tangent at endpoints, smooth S-curve between any two points
   function bezierPath(x1: number, y1: number, x2: number, y2: number): string {
     const dx = x2 - x1;
-    const cpx = Math.max(20, Math.abs(dx) * 0.4);
+    // Control point offset: at least 30px, scales with distance
+    // Capped to prevent wild loops on short horizontal spans
+    const cpx = Math.min(Math.max(30, Math.abs(dx) * 0.45), Math.abs(dx) * 0.5 + 20);
     return `M${x1},${y1} C${x1 + cpx},${y1} ${x2 - cpx},${y2} ${x2},${y2}`;
   }
 
@@ -192,7 +201,7 @@
       const x = (ev.clientX - r.left) / autoZoom - dragOffset.x;
       const y = (ev.clientY - r.top) / autoZoom - dragOffset.y;
       const nodes = graph.nodes.map(n =>
-        n.id === draggingNode ? { ...n, position: { x: Math.max(0, x), y: Math.max(0, y) } } : n
+        n.id === draggingNode ? { ...n, position: { x: Math.max(CANVAS_LEFT_PAD, x), y } } : n
       );
       onGraphChange({ ...graph, nodes });
     }
