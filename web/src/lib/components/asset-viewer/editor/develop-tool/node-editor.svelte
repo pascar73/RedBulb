@@ -13,24 +13,33 @@
   const nodes = $derived(developManager.nodes);
   const selectedId = $derived(developManager.selectedNodeId);
 
-  // ── Layout ──
-  const CANVAS_LEFT_PAD = 40;
-  const CANVAS_RIGHT_PAD = 40;
-  const MIN_CANVAS_H = 120;
-  const DEFAULT_Y = 16;
+  // ── Per-node positions (draggable) ──
+  let nodePositions = $state<Map<string, { x: number; y: number }>>(new Map());
 
-  const canvasW = $derived(CANVAS_LEFT_PAD + Math.max(1, nodes.length) * (NODE_W + NODE_GAP) + CANVAS_RIGHT_PAD);
-  const canvasH = $derived(Math.max(MIN_CANVAS_H, NODE_H + DEFAULT_Y * 2 + 20));
+  function getNodePos(node: CorrectorNode, idx: number): { x: number; y: number } {
+    const stored = nodePositions.get(node.id);
+    if (stored) return stored;
+    // Default: horizontal chain
+    return { x: 80 + idx * (NODE_W + NODE_GAP), y: 60 };
+  }
 
-  // I/O positions
-  const ioY = $derived(DEFAULT_Y + NODE_H / 2);
-  const inputPos = $derived({ x: 8, y: ioY });
-  const outputX = $derived(canvasW - 8);
+  // Initialize positions for new nodes
+  $effect(() => {
+    for (let i = 0; i < nodes.length; i++) {
+      if (!nodePositions.has(nodes[i].id)) {
+        nodePositions.set(nodes[i].id, { x: 80 + i * (NODE_W + NODE_GAP), y: 60 });
+      }
+    }
+    // Clean up positions for deleted nodes
+    for (const id of nodePositions.keys()) {
+      if (!nodes.find(n => n.id === id)) nodePositions.delete(id);
+    }
+  });
 
   // ── Viewport ──
   let canvasEl = $state<HTMLDivElement | undefined>(undefined);
   let viewportW = $state(400);
-  let viewportH = $state(120);
+  let viewportH = $state(200);
 
   $effect(() => {
     if (!canvasEl) return;
@@ -40,6 +49,29 @@
     ro.observe(canvasEl);
     return () => ro.disconnect();
   });
+
+  // ── Canvas bounds (derived from node positions) ──
+  const canvasBounds = $derived.by(() => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < nodes.length; i++) {
+      const p = getNodePos(nodes[i], i);
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + NODE_W);
+      maxY = Math.max(maxY, p.y + NODE_H);
+    }
+    if (nodes.length === 0) { minX = 0; minY = 0; maxX = 200; maxY = 100; }
+    const pad = 60;
+    return {
+      w: Math.max(300, maxX - minX + pad * 2 + 80),
+      h: Math.max(140, maxY - minY + pad * 2),
+      ox: minX - pad - 40, // origin offset x
+      oy: minY - pad,      // origin offset y
+    };
+  });
+
+  const canvasW = $derived(canvasBounds.w);
+  const canvasH = $derived(canvasBounds.h);
 
   // ── Zoom & Pan ──
   let userZoom = $state<number | null>(null);
@@ -93,6 +125,13 @@
 
   function resetToFit() { userZoom = null; panX = 0; panY = 0; }
 
+  // ── I/O connector positions (in SVG canvas coordinates) ──
+  // IN is at the left edge of the canvas, OUT at the right edge
+  // Both vertically centered on the canvas
+  const ioY = $derived(canvasH / 2 - canvasBounds.oy);
+  const inputX = $derived(8 - canvasBounds.ox);
+  const outputX = $derived(canvasW - 8 - canvasBounds.ox);
+
   // ── Bezier wires ──
   function bezierPath(x1: number, y1: number, x2: number, y2: number): string {
     const dx = x2 - x1;
@@ -107,32 +146,79 @@
     const result: { d: string; active: boolean }[] = [];
     if (nodes.length === 0) return result;
 
-    // Nodes in left-to-right order
-    const sorted = [...nodes];
+    // Get positions sorted by x for wire order
+    const sorted = nodes.map((n, i) => ({ node: n, pos: getNodePos(n, i) }))
+      .sort((a, b) => a.pos.x - b.pos.x);
 
+    // IN → first node
     const first = sorted[0];
-    const firstX = CANVAS_LEFT_PAD + 0 * (NODE_W + NODE_GAP);
-    result.push({ d: bezierPath(inputPos.x, inputPos.y, firstX, DEFAULT_Y + NODE_H / 2), active: true });
+    const fcy = first.pos.y + NODE_H / 2;
+    result.push({ d: bezierPath(inputX, ioY, first.pos.x - canvasBounds.ox, fcy - canvasBounds.oy), active: true });
 
+    // Node → Node wires
     for (let i = 0; i < sorted.length - 1; i++) {
-      const ax = CANVAS_LEFT_PAD + i * (NODE_W + NODE_GAP);
-      const bx = CANVAS_LEFT_PAD + (i + 1) * (NODE_W + NODE_GAP);
-      const active = !sorted[i].bypass && hasActiveChanges(sorted[i].state);
-      result.push({ d: bezierPath(ax + NODE_W, DEFAULT_Y + NODE_H / 2, bx, DEFAULT_Y + NODE_H / 2), active });
+      const a = sorted[i], b = sorted[i + 1];
+      const ax = a.pos.x + NODE_W - canvasBounds.ox;
+      const ay = a.pos.y + NODE_H / 2 - canvasBounds.oy;
+      const bx = b.pos.x - canvasBounds.ox;
+      const by = b.pos.y + NODE_H / 2 - canvasBounds.oy;
+      const active = !a.node.bypass && hasActiveChanges(a.node.state);
+      result.push({ d: bezierPath(ax, ay, bx, by), active });
     }
 
-    const lastX = CANVAS_LEFT_PAD + (sorted.length - 1) * (NODE_W + NODE_GAP);
-    const lastActive = !sorted[sorted.length - 1].bypass && hasActiveChanges(sorted[sorted.length - 1].state);
-    result.push({ d: bezierPath(lastX + NODE_W, DEFAULT_Y + NODE_H / 2, outputX, ioY), active: lastActive });
+    // Last node → OUT
+    const last = sorted[sorted.length - 1];
+    const lx = last.pos.x + NODE_W - canvasBounds.ox;
+    const ly = last.pos.y + NODE_H / 2 - canvasBounds.oy;
+    const lastActive = !last.node.bypass && hasActiveChanges(last.node.state);
+    result.push({ d: bezierPath(lx, ly, outputX, ioY), active: lastActive });
 
     return result;
   });
 
-  // ── Node interactions ──
-  function handleNodeClick(nodeId: string) {
-    developManager.selectNode(nodeId);
+  // ── Node dragging ──
+  let draggingNodeId = $state<string | null>(null);
+  let dragStartMouse = { x: 0, y: 0 };
+  let dragStartPos = { x: 0, y: 0 };
+
+  function handleNodeMouseDown(nodeId: string, e: MouseEvent) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    draggingNodeId = nodeId;
+    dragStartMouse = { x: e.clientX, y: e.clientY };
+    const idx = nodes.findIndex(n => n.id === nodeId);
+    const pos = getNodePos(nodes[idx], idx);
+    dragStartPos = { x: pos.x, y: pos.y };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!draggingNodeId) return;
+      const dx = (ev.clientX - dragStartMouse.x) / zoom;
+      const dy = (ev.clientY - dragStartMouse.y) / zoom;
+      nodePositions.set(draggingNodeId, {
+        x: dragStartPos.x + dx,
+        y: dragStartPos.y + dy,
+      });
+      // Force reactivity
+      nodePositions = new Map(nodePositions);
+    };
+
+    const onUp = (ev: MouseEvent) => {
+      const dist = Math.abs(ev.clientX - dragStartMouse.x) + Math.abs(ev.clientY - dragStartMouse.y);
+      if (dist < 5) {
+        // Click (no drag) → select node
+        developManager.selectNode(nodeId);
+      }
+      draggingNodeId = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   }
 
+  // ── Other interactions ──
   function handleAddNode() {
     developManager.addNode();
   }
@@ -148,7 +234,6 @@
     developManager.toggleBypass(nodeId);
   }
 
-  // Double-click to rename
   let editingLabel = $state<string | null>(null);
   let editLabelValue = $state('');
 
@@ -181,10 +266,27 @@
     <button onclick={handleAddNode} title="Add Node" disabled={nodes.length >= MAX_NODES}>+</button>
   </div>
 
+  <!-- IN connector (viewport-fixed, left side, 50% height) -->
+  <div class="io-connector io-in" style="top: 50%;">
+    <svg width="20" height="20" viewBox="0 0 20 20">
+      <circle cx="10" cy="10" r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" />
+    </svg>
+    <span class="io-label">IN</span>
+  </div>
+
+  <!-- OUT connector (viewport-fixed, right side, 50% height) -->
+  <div class="io-connector io-out" style="top: 50%;">
+    <span class="io-label">OUT</span>
+    <svg width="20" height="20" viewBox="0 0 20 20">
+      <circle cx="10" cy="10" r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" />
+    </svg>
+  </div>
+
+  <!-- SVG canvas (zoomable/pannable) -->
   <svg
     width={canvasW}
     height={canvasH}
-    viewBox="0 0 {canvasW} {canvasH}"
+    viewBox="{canvasBounds.ox} {canvasBounds.oy} {canvasW} {canvasH}"
     style="transform: translate({translateX}px, {translateY}px) scale({zoom}); transform-origin: 0 0;"
     class="node-svg"
   >
@@ -193,30 +295,25 @@
       <path d={wire.d} fill="none" stroke={wire.active ? '#60a5fa' : '#555'} stroke-width="2.5" />
     {/each}
 
-    <!-- Input connector -->
-    <circle cx={inputPos.x} cy={inputPos.y} r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" />
-    <text x={inputPos.x} y={inputPos.y - IO_R - 4} fill="#888" font-size="10" text-anchor="middle">IN</text>
-
-    <!-- Output connector -->
-    <circle cx={outputX} cy={ioY} r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" />
-    <text x={outputX} y={ioY - IO_R - 4} fill="#888" font-size="10" text-anchor="middle">OUT</text>
-
     <!-- Nodes -->
-    {#each nodes as node, i}
-      {@const nx = CANVAS_LEFT_PAD + i * (NODE_W + NODE_GAP)}
-      {@const ny = DEFAULT_Y}
+    {#each nodes as node, i (node.id)}
+      {@const pos = getNodePos(node, i)}
+      {@const nx = pos.x}
+      {@const ny = pos.y}
       {@const isSelected = node.id === selectedId}
       {@const isActive = hasActiveChanges(node.state)}
       {@const isBypassed = node.bypass}
+      {@const isDragging = draggingNodeId === node.id}
 
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <g
         class="node-group"
         class:selected={isSelected}
         class:bypassed={isBypassed}
-        onclick={() => handleNodeClick(node.id)}
+        class:dragging={isDragging}
+        onmousedown={(e) => handleNodeMouseDown(node.id, e)}
         ondblclick={(e) => handleDoubleClick(node.id, e)}
+        style="cursor: {isDragging ? 'grabbing' : 'grab'}"
       >
         <!-- Node body -->
         <rect
@@ -227,7 +324,7 @@
           opacity={isBypassed ? 0.4 : 1}
         />
 
-        <!-- Red dot indicator (active changes) -->
+        <!-- Red dot indicator -->
         {#if isActive && !isBypassed}
           <circle cx={nx + 14} cy={ny + 14} r="5" fill="#ef4444" />
         {/if}
@@ -261,29 +358,33 @@
           >{node.label || String(i + 1).padStart(2, '0')}</text>
         {/if}
 
-        <!-- Bypass button (D key indicator) -->
-        <text
-          x={nx + NODE_W - 14} y={ny + 16}
-          fill={isBypassed ? '#ef4444' : '#666'}
-          font-size="10" text-anchor="middle" cursor="pointer"
-          onclick={(e) => handleToggleBypass(node.id, e)}
-        >{isBypassed ? '⊘' : ''}</text>
+        <!-- Bypass indicator -->
+        {#if isBypassed}
+          <text
+            x={nx + NODE_W - 14} y={ny + 16}
+            fill="#ef4444" font-size="10" text-anchor="middle" cursor="pointer"
+            onmousedown={(e) => { e.stopPropagation(); handleToggleBypass(node.id, e); }}
+          >⊘</text>
+        {/if}
 
         <!-- Delete button (only if >1 node) -->
         {#if nodes.length > 1}
           <text
             x={nx + NODE_W - 14} y={ny + NODE_H - 8}
             fill="#666" font-size="11" text-anchor="middle" cursor="pointer"
-            onclick={(e) => handleDeleteNode(node.id, e)}
+            onmousedown={(e) => { e.stopPropagation(); handleDeleteNode(node.id, e); }}
           >✕</text>
         {/if}
 
-        <!-- I/O connectors -->
+        <!-- I/O connectors on node -->
         <circle cx={nx} cy={ny + NODE_H / 2} r={IO_R} fill="#333" stroke={isSelected ? '#60a5fa' : '#888'} stroke-width="1.5" />
         <circle cx={nx + NODE_W} cy={ny + NODE_H / 2} r={IO_R} fill="#333" stroke={isSelected ? '#60a5fa' : '#888'} stroke-width="1.5" />
       </g>
     {/each}
   </svg>
+
+  <!-- Node count -->
+  <div class="node-count">{nodes.length} node{nodes.length !== 1 ? 's' : ''}</div>
 </div>
 
 <style>
@@ -300,6 +401,32 @@
     position: absolute;
     top: 0;
     left: 0;
+  }
+
+  /* I/O connectors — fixed to viewport edges */
+  .io-connector {
+    position: absolute;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    z-index: 5;
+    pointer-events: none;
+  }
+
+  .io-in {
+    left: 4px;
+  }
+
+  .io-out {
+    right: 4px;
+  }
+
+  .io-label {
+    font-size: 9px;
+    color: #888;
+    font-weight: 600;
+    letter-spacing: 0.05em;
   }
 
   .zoom-controls {
@@ -335,8 +462,18 @@
     text-align: center;
   }
 
-  .node-group { cursor: pointer; }
+  .node-group { cursor: grab; }
   .node-group:hover rect { filter: brightness(1.15); }
+  .node-group.dragging { cursor: grabbing; }
+
+  .node-count {
+    position: absolute;
+    bottom: 4px;
+    right: 8px;
+    font-size: 10px;
+    color: #555;
+    z-index: 5;
+  }
 
   .node-label-input {
     width: 100%;
