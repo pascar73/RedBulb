@@ -234,6 +234,9 @@ class DevelopManager implements EditToolManager {
     if (!serverLoaded) {
       this.loadFromStorage(asset.id);
     }
+    // Initialize node graph from loaded state
+    this._ensureNodeGraph();
+
     // Small delay to let Svelte finish updating derived state before enabling auto-save
     setTimeout(() => { this._isLoading = false; }, 100);
   }
@@ -347,20 +350,22 @@ class DevelopManager implements EditToolManager {
 
   /** Get the current node graph (creates one if needed) */
   get nodeGraph(): NodeGraphV2 {
+    // If not yet initialized (shouldn't happen, but safety fallback)
     if (!this._nodeGraph) {
-      this._ensureNodeGraph();
+      // Return a safe default — _ensureNodeGraph() should have been called in onActivate
+      return { version: 2, selectedNodeId: '', nodes: [], geometry: createDefaultGeometry() };
     }
-    return this._nodeGraph!;
+    return this._nodeGraph;
   }
 
   /** Get the list of nodes */
   get nodes(): CorrectorNode[] {
-    return this.nodeGraph.nodes;
+    return this._nodeGraph?.nodes ?? [];
   }
 
   /** Get the currently selected node */
   get selectedNode(): CorrectorNode | undefined {
-    return this.nodeGraph.nodes.find(n => n.id === this.selectedNodeId);
+    return this._nodeGraph?.nodes.find(n => n.id === this.selectedNodeId);
   }
 
   /** Initialize node graph from current state if not yet created */
