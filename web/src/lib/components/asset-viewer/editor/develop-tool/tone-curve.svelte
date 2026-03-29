@@ -341,17 +341,36 @@
     const rect = svgElement.getBoundingClientRect();
     const y = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
 
-    // Endpoints: free 2D movement (like DaVinci Resolve)
-    // Black point: x clamp [0, 0.99], y clamp [0, 1]
-    // White point: x clamp [0.01, 1], y clamp [0, 1]
+    // Endpoints: constrained to edges of the curve box
+    // Black point: slides along LEFT edge (x=0, y varies) or BOTTOM edge (y=0, x varies)
+    // White point: slides along RIGHT edge (x=1, y varies) or TOP edge (y=1, x varies)
+    // Snap to whichever edge the cursor is closer to.
     if (draggingEndpoint === -1) {
-      const x = Math.max(0, Math.min(0.99, (clientX - rect.left) / rect.width));
-      setEndpoint(activeChannel, 'black', x, y);
+      const rawX = Math.max(0, Math.min(0.5, (clientX - rect.left) / rect.width));
+      const rawY = Math.max(0, Math.min(0.5, y));
+      // Distance to left edge (x=0) vs bottom edge (y=0)
+      if (rawX <= rawY) {
+        // Closer to left edge → constrain x=0, slide y
+        setEndpoint(activeChannel, 'black', 0, rawY);
+      } else {
+        // Closer to bottom edge → constrain y=0, slide x
+        setEndpoint(activeChannel, 'black', rawX, 0);
+      }
       return;
     }
     if (draggingEndpoint === -2) {
-      const x = Math.max(0.01, Math.min(1, (clientX - rect.left) / rect.width));
-      setEndpoint(activeChannel, 'white', x, y);
+      const rawX = Math.max(0.5, Math.min(1, (clientX - rect.left) / rect.width));
+      const rawY = Math.max(0.5, Math.min(1, y));
+      // Distance to right edge (x=1) vs top edge (y=1)
+      const distRight = 1 - rawX;
+      const distTop = 1 - rawY;
+      if (distRight <= distTop) {
+        // Closer to right edge → constrain x=1, slide y
+        setEndpoint(activeChannel, 'white', 1, rawY);
+      } else {
+        // Closer to top edge → constrain y=1, slide x
+        setEndpoint(activeChannel, 'white', rawX, 1);
+      }
       return;
     }
     if (draggingIndex === null) return;
