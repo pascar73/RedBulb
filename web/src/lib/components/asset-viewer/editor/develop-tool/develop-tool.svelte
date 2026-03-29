@@ -468,8 +468,8 @@
     {@render sectionHeader('light', 'Light', lightSliders)}
     {#if !collapsed.light}
       <div class="section-content">
-        <!-- Tone Mapper toggle -->
-        <div class="tone-mapper-row">
+        <!-- Tone Mapper toggle (disabled — filmic resets sliders, needs investigation) -->
+        <!-- <div class="tone-mapper-row">
           <span class="tone-mapper-label">Tone Mapper</span>
           <div class="tone-mapper-switch">
             <button
@@ -483,7 +483,7 @@
               onclick={() => developManager.toneMapper = 'filmic'}
             >Filmic</button>
           </div>
-        </div>
+        </div> -->
         {@render sliderGroup(lightSliders)}
       </div>
     {/if}
