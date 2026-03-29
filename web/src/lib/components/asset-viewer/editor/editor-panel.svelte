@@ -76,15 +76,13 @@
         <ZoomControl />
       {/if}
       {#if editManager.selectedTool?.type === EditToolType.Develop}
-        {#if developManager.hasChanges}
-          <IconButton
-            shape="round"
-            size="small"
-            icon={mdiExport}
-            title="Export edited copy"
-            onclick={() => (showExportDialog = true)}
-          />
-        {/if}
+        <IconButton
+          shape="round"
+          size="small"
+          icon={mdiExport}
+          title="Export"
+          onclick={() => (showExportDialog = true)}
+        />
       {:else}
         <Button shape="round" size="small" onclick={applyEdits} loading={editManager.isApplyingEdits}>
           {$t('save')}
