@@ -18,8 +18,24 @@
   let resizeMode = $state<'original' | 'longEdge' | 'megapixels' | 'custom'>('original');
   let longEdge = $state(2048);
   let megapixels = $state(2);
-  let customWidth = $state(1920);
-  let customHeight = $state(1080);
+  // Aspect ratio from original image
+  const origW = asset.exifInfo?.exifImageWidth ?? 1920;
+  const origH = asset.exifInfo?.exifImageHeight ?? 1080;
+  const aspectRatio = origW / origH;
+
+  let customWidth = $state(origW);
+  let customHeight = $state(origH);
+
+  function onWidthChange(e: Event) {
+    const w = parseInt((e.target as HTMLInputElement).value) || 100;
+    customWidth = w;
+    customHeight = Math.round(w / aspectRatio);
+  }
+  function onHeightChange(e: Event) {
+    const h = parseInt((e.target as HTMLInputElement).value) || 100;
+    customHeight = h;
+    customWidth = Math.round(h * aspectRatio);
+  }
   let isExporting = $state(false);
   let progress = $state('');
 
@@ -176,7 +192,8 @@
             <div class="ml-6 flex items-center gap-2">
               <input
                 type="number"
-                bind:value={customWidth}
+                value={customWidth}
+                onchange={onWidthChange}
                 min="100"
                 max="20000"
                 class="w-20 px-2 py-1 rounded bg-white/10 text-sm text-white border border-white/20 focus:border-immich-primary focus:outline-none"
@@ -184,12 +201,14 @@
               <span class="text-xs text-gray-400">×</span>
               <input
                 type="number"
-                bind:value={customHeight}
+                value={customHeight}
+                onchange={onHeightChange}
                 min="100"
                 max="20000"
                 class="w-20 px-2 py-1 rounded bg-white/10 text-sm text-white border border-white/20 focus:border-immich-primary focus:outline-none"
               />
               <span class="text-xs text-gray-400">px</span>
+              <span class="text-xs text-gray-500">🔒 {origW}×{origH}</span>
             </div>
           {/if}
         </div>
