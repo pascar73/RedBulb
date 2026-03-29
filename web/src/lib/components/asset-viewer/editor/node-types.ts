@@ -1,412 +1,367 @@
 /**
- * node-types.ts — Node graph data model for RedBulb's DaVinci-style processing pipeline.
+ * node-types.ts — DaVinci Resolve-style node graph for RedBulb.
  *
- * Each node represents a processing module. In Phase 1 (serial chain),
- * nodes execute left-to-right. Future phases add parallel and layer nodes.
- *
- * The node graph is the canonical representation of edits.
- * The legacy slider UI generates a node graph behind the scenes.
+ * v2 Architecture:
+ * - Each node is a FULL develop state container (not a single function)
+ * - Nodes apply as cumulative deltas — only non-zero params affect the image
+ * - Start with 1 node, max 10
+ * - Geometry (rotation, perspective, distortion) is GLOBAL, not per-node
+ * - Selecting a node loads its state into the develop panel
  */
 
 // ══════════════════════════════════════════════════════════════
-// NODE TYPE DEFINITIONS
+// DEVELOP STATE — the canonical state that each node stores
 // ══════════════════════════════════════════════════════════════
 
-export type NodeType =
-  | 'exposure'       // Exposure, brightness, highlights, shadows, whites, blacks
-  | 'contrast'       // Contrast + fade
-  | 'temperature'    // White balance: temperature + tint
-  | 'saturation'     // Saturation + vibrance
-  | 'curves'         // RGB tone curves with endpoints
-  | 'filmicToneMap'  // AgX filmic tone mapping
-  | 'caCorrection'   // Chromatic aberration correction
-  | 'dehaze'         // Dark channel prior
-  | 'clarity'        // Unsharp mask (large radius) + texture
-  | 'sharpen'        // Unsharp mask (small radius)
-  | 'denoise'        // Bilateral filter
-  | 'hsl'            // OKLCh HSL per-channel adjustments
-  | 'colorGrade'     // 3-way color wheels
-  | 'grain'          // Film grain (multi-octave)
-  | 'vignette';      // Radial vignette
-
-export interface NodeDefinition {
-  type: NodeType;
-  label: string;
-  icon: string;       // Emoji or SVG path ref
-  category: 'light' | 'color' | 'detail' | 'effects' | 'creative';
-  defaultParams: Record<string, unknown>;
-  /** Parameter schema for UI generation */
-  paramDefs: ParamDef[];
-}
-
-export interface ParamDef {
-  key: string;
-  label: string;
-  type: 'number' | 'select' | 'curve' | 'hsl' | 'colorWheel';
-  min?: number;
-  max?: number;
-  step?: number;
-  options?: { value: string; label: string }[];
-}
-
-// ══════════════════════════════════════════════════════════════
-// NODE INSTANCE (runtime)
-// ══════════════════════════════════════════════════════════════
-
-export interface ProcessingNode {
-  id: string;        // Unique ID (uuid or nanoid)
-  type: NodeType;
-  label: string;     // User-editable label (defaults to definition label)
-  enabled: boolean;
-  params: Record<string, unknown>;
-  /** Position in the visual editor (x, y in canvas coords) */
-  position: { x: number; y: number };
-}
-
-// ══════════════════════════════════════════════════════════════
-// NODE GRAPH (serial chain for Phase 1)
-// ══════════════════════════════════════════════════════════════
-
-export interface NodeGraph {
-  version: 2;        // version 1 = legacy sliders, version 2 = node graph
-  nodes: ProcessingNode[];
-  /** Future: connections for parallel/layer graphs */
-  // connections: Connection[];
-}
-
-// ══════════════════════════════════════════════════════════════
-// NODE REGISTRY — all available node types
-// ══════════════════════════════════════════════════════════════
-
-export const NODE_REGISTRY: Record<NodeType, NodeDefinition> = {
-  exposure: {
-    type: 'exposure',
-    label: 'Exposure',
-    icon: '☀️',
-    category: 'light',
-    defaultParams: { exposure: 0, brightness: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0 },
-    paramDefs: [
-      { key: 'exposure', label: 'Exposure', type: 'number', min: -5, max: 5, step: 0.1 },
-      { key: 'brightness', label: 'Brightness', type: 'number', min: -1, max: 1, step: 0.01 },
-      { key: 'highlights', label: 'Highlights', type: 'number', min: -1, max: 1, step: 0.01 },
-      { key: 'shadows', label: 'Shadows', type: 'number', min: -1, max: 1, step: 0.01 },
-      { key: 'whites', label: 'Whites', type: 'number', min: -1, max: 1, step: 0.01 },
-      { key: 'blacks', label: 'Blacks', type: 'number', min: -1, max: 1, step: 0.01 },
-    ],
-  },
-  contrast: {
-    type: 'contrast',
-    label: 'Contrast',
-    icon: '◑',
-    category: 'light',
-    defaultParams: { contrast: 0, fade: 0 },
-    paramDefs: [
-      { key: 'contrast', label: 'Contrast', type: 'number', min: -1, max: 1, step: 0.01 },
-      { key: 'fade', label: 'Fade', type: 'number', min: 0, max: 1, step: 0.01 },
-    ],
-  },
-  temperature: {
-    type: 'temperature',
-    label: 'White Balance',
-    icon: '🌡️',
-    category: 'color',
-    defaultParams: { temperature: 0, tint: 0 },
-    paramDefs: [
-      { key: 'temperature', label: 'Temperature', type: 'number', min: -1, max: 1, step: 0.01 },
-      { key: 'tint', label: 'Tint', type: 'number', min: -1, max: 1, step: 0.01 },
-    ],
-  },
-  saturation: {
-    type: 'saturation',
-    label: 'Saturation',
-    icon: '🎨',
-    category: 'color',
-    defaultParams: { saturation: 0, vibrance: 0 },
-    paramDefs: [
-      { key: 'saturation', label: 'Saturation', type: 'number', min: -1, max: 1, step: 0.01 },
-      { key: 'vibrance', label: 'Vibrance', type: 'number', min: -1, max: 1, step: 0.01 },
-    ],
-  },
+/** Full develop state for a single node (matches developManager.serialize() v1 format) */
+export interface DevelopState {
+  version: 1;
+  basic: {
+    exposure: number;
+    contrast: number;
+    highlights: number;
+    shadows: number;
+    whites: number;
+    blacks: number;
+    brightness: number;
+  };
+  color: {
+    saturation: number;
+    temperature: number;
+    tint: number;
+    vibrance: number;
+  };
+  toneMapper: 'none' | 'filmic';
+  details: {
+    sharpness: number;
+    noiseReduction: number;
+    clarity: number;
+    dehaze: number;
+    caCorrection: number;
+  };
+  effects: {
+    texture: number;
+    vignette: number;
+    vignetteMidpoint: number;
+    vignetteRoundness: number;
+    vignetteFeather: number;
+    vignetteHighlights: number;
+    grain: number;
+    grainSize: number;
+    grainRoughness: number;
+    fade: number;
+  };
   curves: {
-    type: 'curves',
-    label: 'Curves',
-    icon: '📈',
-    category: 'light',
-    defaultParams: {
-      points: { master: [], red: [], green: [], blue: [] },
-      endpoints: {
-        master: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
-        red: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
-        green: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
-        blue: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
-      },
+    master: Array<{ x: number; y: number }>;
+    red: Array<{ x: number; y: number }>;
+    green: Array<{ x: number; y: number }>;
+    blue: Array<{ x: number; y: number }>;
+  };
+  curveEndpoints: {
+    master: { black: { x: number; y: number }; white: { x: number; y: number } };
+    red: { black: { x: number; y: number }; white: { x: number; y: number } };
+    green: { black: { x: number; y: number }; white: { x: number; y: number } };
+    blue: { black: { x: number; y: number }; white: { x: number; y: number } };
+  };
+  colorWheels: {
+    shadows: { hue: number; sat: number; lum: number };
+    midtones: { hue: number; sat: number; lum: number };
+    highlights: { hue: number; sat: number; lum: number };
+  };
+  hsl: Record<string, { h: number; s: number; l: number }>;
+}
+
+/** Geometry state — GLOBAL, not per-node (like DaVinci Resolve) */
+export interface GeometryState {
+  rotation: number;
+  distortion: number;
+  vertical: number;
+  horizontal: number;
+  scale: number;
+}
+
+// ══════════════════════════════════════════════════════════════
+// NODE INSTANCE
+// ══════════════════════════════════════════════════════════════
+
+export interface CorrectorNode {
+  id: string;
+  label: string;         // User-editable ("01", "Base Grade", etc.)
+  state: DevelopState;   // Full develop state for this node
+  bypass: boolean;       // When true, node is skipped in processing
+  position: { x: number; y: number }; // Canvas position for editor
+}
+
+// ══════════════════════════════════════════════════════════════
+// NODE GRAPH (v2)
+// ══════════════════════════════════════════════════════════════
+
+export interface NodeGraphV2 {
+  version: 2;
+  selectedNodeId: string;
+  nodes: CorrectorNode[];
+  geometry: GeometryState;  // Global geometry, not per-node
+}
+
+/** Legacy v1 state (single develop state, no nodes) */
+export type LegacyState = DevelopState & { geometry?: GeometryState };
+
+// ══════════════════════════════════════════════════════════════
+// DEFAULTS
+// ══════════════════════════════════════════════════════════════
+
+export const MAX_NODES = 10;
+export const NODE_W = 160;
+export const NODE_H = 88;
+export const NODE_GAP = 24;
+export const IO_R = 7;
+
+export function createEmptyDevelopState(): DevelopState {
+  return {
+    version: 1,
+    basic: { exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0, brightness: 0 },
+    color: { saturation: 0, temperature: 0, tint: 0, vibrance: 0 },
+    toneMapper: 'none',
+    details: { sharpness: 0, noiseReduction: 0, clarity: 0, dehaze: 0, caCorrection: 0 },
+    effects: {
+      texture: 0, vignette: 0, vignetteMidpoint: 50, vignetteRoundness: 0,
+      vignetteFeather: 50, vignetteHighlights: 0, grain: 0, grainSize: 25,
+      grainRoughness: 50, fade: 0,
     },
-    paramDefs: [{ key: 'curves', label: 'Tone Curves', type: 'curve' }],
-  },
-  filmicToneMap: {
-    type: 'filmicToneMap',
-    label: 'Filmic',
-    icon: '🎬',
-    category: 'creative',
-    defaultParams: { enabled: true }, // toggle node on/off
-    paramDefs: [],
-  },
-  caCorrection: {
-    type: 'caCorrection',
-    label: 'CA Correction',
-    icon: '🔍',
-    category: 'detail',
-    defaultParams: { amount: 0 },
-    paramDefs: [
-      { key: 'amount', label: 'Amount', type: 'number', min: 0, max: 1, step: 0.01 },
-    ],
-  },
-  dehaze: {
-    type: 'dehaze',
-    label: 'Dehaze',
-    icon: '🌫️',
-    category: 'detail',
-    defaultParams: { amount: 0 },
-    paramDefs: [
-      { key: 'amount', label: 'Amount', type: 'number', min: -1, max: 1, step: 0.01 },
-    ],
-  },
-  clarity: {
-    type: 'clarity',
-    label: 'Clarity',
-    icon: '💎',
-    category: 'detail',
-    defaultParams: { clarity: 0, texture: 0 },
-    paramDefs: [
-      { key: 'clarity', label: 'Clarity', type: 'number', min: -1, max: 1, step: 0.01 },
-      { key: 'texture', label: 'Texture', type: 'number', min: -1, max: 1, step: 0.01 },
-    ],
-  },
-  sharpen: {
-    type: 'sharpen',
-    label: 'Sharpen',
-    icon: '🔪',
-    category: 'detail',
-    defaultParams: { amount: 0 },
-    paramDefs: [
-      { key: 'amount', label: 'Amount', type: 'number', min: 0, max: 1, step: 0.01 },
-    ],
-  },
-  denoise: {
-    type: 'denoise',
-    label: 'Denoise',
-    icon: '🤫',
-    category: 'detail',
-    defaultParams: { amount: 0 },
-    paramDefs: [
-      { key: 'amount', label: 'Amount', type: 'number', min: 0, max: 1, step: 0.01 },
-    ],
-  },
-  hsl: {
-    type: 'hsl',
-    label: 'HSL',
-    icon: '🌈',
-    category: 'color',
-    defaultParams: {
-      channels: {
-        red: { h: 0, s: 0, l: 0 }, orange: { h: 0, s: 0, l: 0 },
-        yellow: { h: 0, s: 0, l: 0 }, green: { h: 0, s: 0, l: 0 },
-        aqua: { h: 0, s: 0, l: 0 }, blue: { h: 0, s: 0, l: 0 },
-        purple: { h: 0, s: 0, l: 0 }, magenta: { h: 0, s: 0, l: 0 },
-      },
+    curves: { master: [], red: [], green: [], blue: [] },
+    curveEndpoints: {
+      master: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+      red: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+      green: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+      blue: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
     },
-    paramDefs: [{ key: 'hsl', label: 'HSL Channels', type: 'hsl' }],
-  },
-  colorGrade: {
-    type: 'colorGrade',
-    label: 'Color Grade',
-    icon: '🎡',
-    category: 'color',
-    defaultParams: {
+    colorWheels: {
       shadows: { hue: 0, sat: 0, lum: 0 },
       midtones: { hue: 0, sat: 0, lum: 0 },
       highlights: { hue: 0, sat: 0, lum: 0 },
     },
-    paramDefs: [{ key: 'colorWheels', label: 'Color Wheels', type: 'colorWheel' }],
-  },
-  grain: {
-    type: 'grain',
-    label: 'Film Grain',
-    icon: '🎞️',
-    category: 'effects',
-    defaultParams: { amount: 0, size: 25, roughness: 50 },
-    paramDefs: [
-      { key: 'amount', label: 'Amount', type: 'number', min: 0, max: 1, step: 0.01 },
-      { key: 'size', label: 'Size', type: 'number', min: 1, max: 100, step: 1 },
-      { key: 'roughness', label: 'Roughness', type: 'number', min: 0, max: 100, step: 1 },
-    ],
-  },
-  vignette: {
-    type: 'vignette',
-    label: 'Vignette',
-    icon: '⚫',
-    category: 'effects',
-    defaultParams: { amount: 0, midpoint: 50, roundness: 0, feather: 50, highlights: 0 },
-    paramDefs: [
-      { key: 'amount', label: 'Amount', type: 'number', min: -1, max: 1, step: 0.01 },
-      { key: 'midpoint', label: 'Midpoint', type: 'number', min: 0, max: 100, step: 1 },
-      { key: 'roundness', label: 'Roundness', type: 'number', min: -100, max: 100, step: 1 },
-      { key: 'feather', label: 'Feather', type: 'number', min: 0, max: 100, step: 1 },
-      { key: 'highlights', label: 'Highlights', type: 'number', min: 0, max: 100, step: 1 },
-    ],
-  },
-};
-
-// ══════════════════════════════════════════════════════════════
-// DEFAULT PIPELINE — the standard serial chain
-// ══════════════════════════════════════════════════════════════
-
-/** Default node order matching DaVinci Resolve's color page flow */
-export const DEFAULT_NODE_ORDER: NodeType[] = [
-  'exposure',
-  'contrast',
-  'temperature',
-  'saturation',
-  'curves',
-  'filmicToneMap',
-  'caCorrection',
-  'dehaze',
-  'clarity',
-  'sharpen',
-  'denoise',
-  'hsl',
-  'colorGrade',
-  'vignette',
-  'grain',
-];
-
-// ══════════════════════════════════════════════════════════════
-// HELPERS
-// ══════════════════════════════════════════════════════════════
-
-let _idCounter = 0;
-export function generateNodeId(): string {
-  return `node_${Date.now()}_${++_idCounter}`;
-}
-
-/** Create a new node with default params */
-export function createNode(type: NodeType, overrides?: Partial<ProcessingNode>): ProcessingNode {
-  const def = NODE_REGISTRY[type];
-  return {
-    id: generateNodeId(),
-    type,
-    label: def.label,
-    enabled: true,
-    params: { ...def.defaultParams },
-    position: { x: 0, y: 0 },
-    ...overrides,
+    hsl: {
+      red: { h: 0, s: 0, l: 0 }, orange: { h: 0, s: 0, l: 0 },
+      yellow: { h: 0, s: 0, l: 0 }, green: { h: 0, s: 0, l: 0 },
+      aqua: { h: 0, s: 0, l: 0 }, blue: { h: 0, s: 0, l: 0 },
+      purple: { h: 0, s: 0, l: 0 }, magenta: { h: 0, s: 0, l: 0 },
+    },
   };
 }
 
-/** Create the default serial pipeline as a node graph */
-export function createDefaultGraph(): NodeGraph {
-  const NODE_W = 160, NODE_GAP = 24, PAD_LEFT = 40, PAD_TOP = 40;
-  const nodes = DEFAULT_NODE_ORDER.map((type, i) => {
-    const node = createNode(type);
-    node.position = { x: PAD_LEFT + i * (NODE_W + NODE_GAP), y: PAD_TOP };
-    if (type === 'filmicToneMap') node.enabled = false;
-    return node;
-  });
-  return { version: 2, nodes };
+export function createDefaultGeometry(): GeometryState {
+  return { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 100 };
 }
 
+// ══════════════════════════════════════════════════════════════
+// NODE CREATION
+// ══════════════════════════════════════════════════════════════
+
+let _nodeCounter = 0;
+
+export function createNode(label?: string, state?: DevelopState): CorrectorNode {
+  _nodeCounter++;
+  const num = String(_nodeCounter).padStart(2, '0');
+  return {
+    id: `node-${Date.now()}-${_nodeCounter}`,
+    label: label ?? num,
+    state: state ? JSON.parse(JSON.stringify(state)) : createEmptyDevelopState(),
+    bypass: false,
+    position: { x: (_nodeCounter - 1) * (NODE_W + NODE_GAP), y: 0 },
+  };
+}
+
+export function resetNodeCounter(count: number = 0): void {
+  _nodeCounter = count;
+}
+
+// ══════════════════════════════════════════════════════════════
+// STATE DETECTION — does a node have active (non-zero) changes?
+// ══════════════════════════════════════════════════════════════
+
+/** Check if a develop state has any non-default values (for red dot indicator) */
+export function hasActiveChanges(state: DevelopState): boolean {
+  const b = state.basic;
+  const c = state.color;
+  const d = state.details;
+  const e = state.effects;
+
+  const hasBasic = b.exposure !== 0 || b.contrast !== 0 || b.highlights !== 0 ||
+    b.shadows !== 0 || b.whites !== 0 || b.blacks !== 0 || b.brightness !== 0;
+
+  const hasColor = c.saturation !== 0 || c.temperature !== 0 || c.tint !== 0 || c.vibrance !== 0;
+
+  const hasDetails = d.sharpness !== 0 || d.noiseReduction !== 0 || d.clarity !== 0 ||
+    d.dehaze !== 0 || d.caCorrection !== 0;
+
+  const hasEffects = e.texture !== 0 || e.vignette !== 0 || e.grain !== 0 || e.fade !== 0;
+
+  const hasCurves = state.curves.master.length > 0 || state.curves.red.length > 0 ||
+    state.curves.green.length > 0 || state.curves.blue.length > 0;
+
+  const hasEndpoints = Object.values(state.curveEndpoints).some(
+    ep => ep.black.x !== 0 || ep.black.y !== 0 || ep.white.x !== 1 || ep.white.y !== 1,
+  );
+
+  const hasColorWheels = Object.values(state.colorWheels).some(
+    w => w.hue !== 0 || w.sat !== 0 || w.lum !== 0,
+  );
+
+  const hasHSL = Object.values(state.hsl).some(
+    ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0,
+  );
+
+  return hasBasic || hasColor || hasDetails || hasEffects || hasCurves ||
+    hasEndpoints || hasColorWheels || hasHSL || state.toneMapper !== 'none';
+}
+
+// ══════════════════════════════════════════════════════════════
+// V1 → V2 MIGRATION
+// ══════════════════════════════════════════════════════════════
+
 /**
- * Convert legacy flat slider state (version 1) to a node graph (version 2).
- * This is the bridge between the old UI and the new node system.
+ * Convert a legacy v1 state (single develop state) to a v2 node graph.
+ * Existing edits become Node 01. Geometry extracted to global.
  */
-export function legacyStateToNodeGraph(state: Record<string, unknown>): NodeGraph {
-  const b = (state as any).basic || {};
-  const c = (state as any).color || {};
-  const d = (state as any).details || {};
-  const e = (state as any).effects || {};
-  const curves = (state as any).curves || {};
-  const curveEndpoints = (state as any).curveEndpoints || {};
-  const hsl = (state as any).hsl || {};
-  const colorWheels = (state as any).colorWheels || {};
-  const toneMapper = (state as any).toneMapper || 'none';
+export function migrateV1toV2(v1: Record<string, unknown>): NodeGraphV2 {
+  // Extract geometry (global in v2)
+  const geo = (v1 as any).geometry;
+  const geometry: GeometryState = geo ? {
+    rotation: geo.rotation ?? 0,
+    distortion: geo.distortion ?? 0,
+    vertical: geo.vertical ?? 0,
+    horizontal: geo.horizontal ?? 0,
+    scale: geo.scale ?? 100,
+  } : createDefaultGeometry();
 
-  const graph = createDefaultGraph();
+  // Build the develop state (without geometry)
+  const developState: DevelopState = {
+    version: 1,
+    basic: (v1 as any).basic ?? createEmptyDevelopState().basic,
+    color: (v1 as any).color ?? createEmptyDevelopState().color,
+    toneMapper: (v1 as any).toneMapper ?? 'none',
+    details: (v1 as any).details ?? createEmptyDevelopState().details,
+    effects: (v1 as any).effects ?? createEmptyDevelopState().effects,
+    curves: (v1 as any).curves ?? createEmptyDevelopState().curves,
+    curveEndpoints: (v1 as any).curveEndpoints ?? createEmptyDevelopState().curveEndpoints,
+    colorWheels: (v1 as any).colorWheels ?? createEmptyDevelopState().colorWheels,
+    hsl: (v1 as any).hsl ?? createEmptyDevelopState().hsl,
+  };
 
-  // Map legacy params to nodes
-  for (const node of graph.nodes) {
-    switch (node.type) {
-      case 'exposure':
-        node.params = {
-          exposure: b.exposure ?? 0, brightness: b.brightness ?? 0,
-          highlights: b.highlights ?? 0, shadows: b.shadows ?? 0,
-          whites: b.whites ?? 0, blacks: b.blacks ?? 0,
-        };
-        break;
-      case 'contrast':
-        node.params = { contrast: b.contrast ?? 0, fade: e.fade ?? 0 };
-        break;
-      case 'temperature':
-        node.params = { temperature: c.temperature ?? 0, tint: c.tint ?? 0 };
-        break;
-      case 'saturation':
-        node.params = { saturation: c.saturation ?? 0, vibrance: c.vibrance ?? 0 };
-        break;
-      case 'curves':
-        node.params = { points: { ...curves }, endpoints: { ...curveEndpoints } };
-        break;
-      case 'filmicToneMap':
-        node.enabled = toneMapper === 'filmic';
-        break;
-      case 'caCorrection':
-        node.params = { amount: d.caCorrection ?? 0 };
-        break;
-      case 'dehaze':
-        node.params = { amount: d.dehaze ?? 0 };
-        break;
-      case 'clarity':
-        node.params = { clarity: d.clarity ?? 0, texture: e.texture ?? 0 };
-        break;
-      case 'sharpen':
-        node.params = { amount: d.sharpness ?? 0 };
-        break;
-      case 'denoise':
-        node.params = { amount: d.noiseReduction ?? 0 };
-        break;
-      case 'hsl':
-        node.params = { channels: { ...hsl } };
-        break;
-      case 'colorGrade':
-        node.params = { ...colorWheels };
-        break;
-      case 'grain':
-        node.params = { amount: e.grain ?? 0, size: e.grainSize ?? 25, roughness: e.grainRoughness ?? 50 };
-        break;
-      case 'vignette':
-        node.params = {
-          amount: e.vignette ?? 0, midpoint: e.vignetteMidpoint ?? 50,
-          roundness: e.vignetteRoundness ?? 0, feather: e.vignetteFeather ?? 50,
-          highlights: e.vignetteHighlights ?? 0,
-        };
-        break;
+  resetNodeCounter(0);
+  const node = createNode('01', developState);
+
+  return {
+    version: 2,
+    selectedNodeId: node.id,
+    nodes: [node],
+    geometry,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════
+// MERGE — combine multiple nodes into a single processing state
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Merge all active (non-bypassed) nodes into a single develop state.
+ * Cumulative deltas: for numeric params, non-zero values from later nodes
+ * override earlier ones. For curves/HSL/colorWheels, later nodes override
+ * if they have non-default values.
+ *
+ * This is the "single-pass optimization" — when no params conflict across
+ * nodes, this merged state can be processed in one worker pass.
+ */
+export function mergeNodes(nodes: CorrectorNode[]): DevelopState {
+  const merged = createEmptyDevelopState();
+
+  for (const node of nodes) {
+    if (node.bypass) continue;
+    const s = node.state;
+
+    // Basic — apply non-zero values (additive for exposure-like params)
+    if (s.basic.exposure !== 0) merged.basic.exposure += s.basic.exposure;
+    if (s.basic.contrast !== 0) merged.basic.contrast += s.basic.contrast;
+    if (s.basic.highlights !== 0) merged.basic.highlights += s.basic.highlights;
+    if (s.basic.shadows !== 0) merged.basic.shadows += s.basic.shadows;
+    if (s.basic.whites !== 0) merged.basic.whites += s.basic.whites;
+    if (s.basic.blacks !== 0) merged.basic.blacks += s.basic.blacks;
+    if (s.basic.brightness !== 0) merged.basic.brightness += s.basic.brightness;
+
+    // Color — additive
+    if (s.color.saturation !== 0) merged.color.saturation += s.color.saturation;
+    if (s.color.temperature !== 0) merged.color.temperature += s.color.temperature;
+    if (s.color.tint !== 0) merged.color.tint += s.color.tint;
+    if (s.color.vibrance !== 0) merged.color.vibrance += s.color.vibrance;
+
+    // Tone mapper — last non-'none' wins
+    if (s.toneMapper !== 'none') merged.toneMapper = s.toneMapper;
+
+    // Details — additive
+    if (s.details.sharpness !== 0) merged.details.sharpness += s.details.sharpness;
+    if (s.details.noiseReduction !== 0) merged.details.noiseReduction += s.details.noiseReduction;
+    if (s.details.clarity !== 0) merged.details.clarity += s.details.clarity;
+    if (s.details.dehaze !== 0) merged.details.dehaze += s.details.dehaze;
+    if (s.details.caCorrection !== 0) merged.details.caCorrection += s.details.caCorrection;
+
+    // Effects — additive for intensity, last-wins for settings
+    if (s.effects.texture !== 0) merged.effects.texture += s.effects.texture;
+    if (s.effects.vignette !== 0) {
+      merged.effects.vignette += s.effects.vignette;
+      merged.effects.vignetteMidpoint = s.effects.vignetteMidpoint;
+      merged.effects.vignetteRoundness = s.effects.vignetteRoundness;
+      merged.effects.vignetteFeather = s.effects.vignetteFeather;
+      merged.effects.vignetteHighlights = s.effects.vignetteHighlights;
+    }
+    if (s.effects.grain !== 0) {
+      merged.effects.grain += s.effects.grain;
+      merged.effects.grainSize = s.effects.grainSize;
+      merged.effects.grainRoughness = s.effects.grainRoughness;
+    }
+    if (s.effects.fade !== 0) merged.effects.fade += s.effects.fade;
+
+    // Curves — last node with non-empty curves wins per channel
+    if (s.curves.master.length > 0) merged.curves.master = JSON.parse(JSON.stringify(s.curves.master));
+    if (s.curves.red.length > 0) merged.curves.red = JSON.parse(JSON.stringify(s.curves.red));
+    if (s.curves.green.length > 0) merged.curves.green = JSON.parse(JSON.stringify(s.curves.green));
+    if (s.curves.blue.length > 0) merged.curves.blue = JSON.parse(JSON.stringify(s.curves.blue));
+
+    // Curve endpoints — last non-default wins per channel
+    for (const ch of ['master', 'red', 'green', 'blue'] as const) {
+      const ep = s.curveEndpoints[ch];
+      if (ep.black.x !== 0 || ep.black.y !== 0 || ep.white.x !== 1 || ep.white.y !== 1) {
+        merged.curveEndpoints[ch] = JSON.parse(JSON.stringify(ep));
+      }
+    }
+
+    // Color wheels — additive per wheel
+    for (const zone of ['shadows', 'midtones', 'highlights'] as const) {
+      const w = s.colorWheels[zone];
+      if (w.hue !== 0) merged.colorWheels[zone].hue += w.hue;
+      if (w.sat !== 0) merged.colorWheels[zone].sat += w.sat;
+      if (w.lum !== 0) merged.colorWheels[zone].lum += w.lum;
+    }
+
+    // HSL — additive per channel
+    for (const [ch, vals] of Object.entries(s.hsl)) {
+      if (!merged.hsl[ch]) merged.hsl[ch] = { h: 0, s: 0, l: 0 };
+      if (vals.h !== 0) merged.hsl[ch].h += vals.h;
+      if (vals.s !== 0) merged.hsl[ch].s += vals.s;
+      if (vals.l !== 0) merged.hsl[ch].l += vals.l;
     }
   }
 
-  return graph;
+  return merged;
 }
 
-/** Check if a node has non-default params (i.e. it actually does something) */
-export function nodeIsActive(node: ProcessingNode): boolean {
-  if (!node.enabled) return false;
-  const def = NODE_REGISTRY[node.type];
-  if (!def) return false;
-  // filmicToneMap is active when enabled
-  if (node.type === 'filmicToneMap') return true;
-  // For numeric params, check if any differ from default
-  return Object.keys(def.defaultParams).some(key => {
-    const val = node.params[key];
-    const defVal = def.defaultParams[key];
-    if (typeof val === 'number' && typeof defVal === 'number') return Math.abs(val - defVal) > 0.001;
-    if (typeof val === 'object' && typeof defVal === 'object') return JSON.stringify(val) !== JSON.stringify(defVal);
-    return val !== defVal;
-  });
+/**
+ * Flatten a v2 node graph to a v1-compatible state for the preview worker.
+ * Merges all nodes + adds geometry back.
+ */
+export function flattenNodeGraph(graph: NodeGraphV2): Record<string, unknown> {
+  const merged = mergeNodes(graph.nodes);
+  return {
+    ...merged,
+    geometry: graph.geometry,
+  };
 }

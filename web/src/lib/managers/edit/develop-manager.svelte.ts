@@ -1,11 +1,21 @@
 import { type EditActions, type EditToolManager } from '$lib/managers/edit/edit-manager.svelte';
 import type { AssetResponseDto } from '@immich/sdk';
+import {
+  type NodeGraphV2, type CorrectorNode, type DevelopState,
+  createEmptyDevelopState, createDefaultGeometry, createNode,
+  resetNodeCounter, migrateV1toV2, mergeNodes, hasActiveChanges,
+  MAX_NODES,
+} from '$lib/components/asset-viewer/editor/node-types';
 
 class DevelopManager implements EditToolManager {
   // Current asset ID for auto-save
   private _currentAssetId = $state('');
   private _autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private _isLoading = false; // suppress auto-save during load
+
+  // ── Node Graph State ──
+  private _nodeGraph = $state<NodeGraphV2 | null>(null);
+  selectedNodeId = $state('');
 
   // Basic adjustment parameters
   exposure = $state(0);
@@ -269,11 +279,13 @@ class DevelopManager implements EditToolManager {
       });
 
       // Save to version history (auto-checkpoint)
+      // Use v2 (node graph) if available, otherwise v1 (panel state)
+      const stateToSave = this.serializeV2() ?? this.serialize();
       await fetch(`${baseUrl}/api/assets/${assetId}/develop-history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          state: this.serialize(),
+          state: stateToSave,
           label: '',
           isAutoCheckpoint: true,
         }),
@@ -327,6 +339,164 @@ class DevelopManager implements EditToolManager {
   </rdf:RDF>
 </x:xmpmeta>
 <?xpacket end="w"?>`;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // NODE GRAPH MANAGEMENT
+  // ══════════════════════════════════════════════════════════════
+
+  /** Get the current node graph (creates one if needed) */
+  get nodeGraph(): NodeGraphV2 {
+    if (!this._nodeGraph) {
+      this._ensureNodeGraph();
+    }
+    return this._nodeGraph!;
+  }
+
+  /** Get the list of nodes */
+  get nodes(): CorrectorNode[] {
+    return this.nodeGraph.nodes;
+  }
+
+  /** Get the currently selected node */
+  get selectedNode(): CorrectorNode | undefined {
+    return this.nodeGraph.nodes.find(n => n.id === this.selectedNodeId);
+  }
+
+  /** Initialize node graph from current state if not yet created */
+  private _ensureNodeGraph(): void {
+    if (this._nodeGraph) return;
+
+    // Wrap current develop state into a v2 node graph
+    const currentState = this.serialize();
+    this._nodeGraph = migrateV1toV2(currentState);
+    this.selectedNodeId = this._nodeGraph.selectedNodeId;
+  }
+
+  /** Save current panel state to the selected node */
+  private _saveCurrentToNode(): void {
+    if (!this._nodeGraph || !this.selectedNodeId) return;
+    const node = this._nodeGraph.nodes.find(n => n.id === this.selectedNodeId);
+    if (!node) return;
+
+    // Serialize current panel state (without geometry — that's global)
+    const state = this.serialize() as any;
+    delete state.geometry;
+    state.version = 1;
+    node.state = state as DevelopState;
+
+    // Keep geometry global
+    this._nodeGraph.geometry = {
+      rotation: this.geoRotation,
+      distortion: this.geoDistortion,
+      vertical: this.geoVertical,
+      horizontal: this.geoHorizontal,
+      scale: this.geoScale,
+    };
+  }
+
+  /** Load a node's state into the develop panel */
+  private _loadNodeToPanel(nodeId: string): void {
+    const node = this._nodeGraph?.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    this._isLoading = true;
+    this.deserialize({ ...node.state, geometry: this._nodeGraph!.geometry });
+    setTimeout(() => { this._isLoading = false; }, 100);
+  }
+
+  /** Select a node — saves current panel to old node, loads new node's state */
+  selectNode(nodeId: string): void {
+    if (nodeId === this.selectedNodeId) return;
+
+    // Save current panel state to the previously selected node
+    this._saveCurrentToNode();
+
+    // Switch selection
+    this.selectedNodeId = nodeId;
+    if (this._nodeGraph) this._nodeGraph.selectedNodeId = nodeId;
+
+    // Load the new node's state into the panel
+    this._loadNodeToPanel(nodeId);
+  }
+
+  /** Add a new empty node after the selected node */
+  addNode(): CorrectorNode | null {
+    if (!this._nodeGraph || this._nodeGraph.nodes.length >= MAX_NODES) return null;
+
+    // Save current panel to the currently selected node first
+    this._saveCurrentToNode();
+
+    // Find position to insert (after selected)
+    const selectedIdx = this._nodeGraph.nodes.findIndex(n => n.id === this.selectedNodeId);
+    const insertIdx = selectedIdx >= 0 ? selectedIdx + 1 : this._nodeGraph.nodes.length;
+
+    // Create new node
+    resetNodeCounter(this._nodeGraph.nodes.length);
+    const newNode = createNode();
+
+    // Update positions for all nodes after insertion point
+    this._nodeGraph.nodes.splice(insertIdx, 0, newNode);
+    this._recalcPositions();
+
+    // Select the new node (loads empty state into panel)
+    this.selectNode(newNode.id);
+    return newNode;
+  }
+
+  /** Delete a node by ID */
+  deleteNode(nodeId: string): boolean {
+    if (!this._nodeGraph || this._nodeGraph.nodes.length <= 1) return false;
+
+    const idx = this._nodeGraph.nodes.findIndex(n => n.id === nodeId);
+    if (idx === -1) return false;
+
+    this._nodeGraph.nodes.splice(idx, 1);
+    this._recalcPositions();
+
+    // If we deleted the selected node, select the nearest one
+    if (this.selectedNodeId === nodeId) {
+      const newIdx = Math.min(idx, this._nodeGraph.nodes.length - 1);
+      this.selectNode(this._nodeGraph.nodes[newIdx].id);
+    }
+
+    return true;
+  }
+
+  /** Toggle bypass on a node */
+  toggleBypass(nodeId: string): void {
+    const node = this._nodeGraph?.nodes.find(n => n.id === nodeId);
+    if (node) {
+      node.bypass = !node.bypass;
+      this._updateMergedPreview();
+    }
+  }
+
+  /** Recalculate node positions for clean layout */
+  private _recalcPositions(): void {
+    if (!this._nodeGraph) return;
+    const gap = 160 + 24; // NODE_W + NODE_GAP
+    for (let i = 0; i < this._nodeGraph.nodes.length; i++) {
+      this._nodeGraph.nodes[i].position = { x: i * gap, y: 0 };
+    }
+  }
+
+  /**
+   * Update the preview by merging all nodes.
+   * Called after bypass toggle or node reorder.
+   * Loads the merged state for non-selected node params but keeps
+   * the selected node's state in the panel.
+   */
+  private _updateMergedPreview(): void {
+    // Trigger auto-save which will pick up the changes
+    this.scheduleAutoSave();
+  }
+
+  /** Check if a specific node has active changes (for red dot) */
+  nodeHasChanges(nodeId: string): boolean {
+    const node = this._nodeGraph?.nodes.find(n => n.id === nodeId);
+    if (!node) return false;
+    return hasActiveChanges(node.state);
   }
 
   async resetAllChanges(): Promise<void> {
@@ -388,18 +558,29 @@ class DevelopManager implements EditToolManager {
     Object.keys(this.hsl).forEach((channel) => {
       this.hsl[channel as keyof typeof this.hsl] = { h: 0, s: 0, l: 0 };
     });
+
+    // Reset node graph to single empty node
+    resetNodeCounter(0);
+    const node = createNode('01');
+    this._nodeGraph = {
+      version: 2,
+      selectedNodeId: node.id,
+      nodes: [node],
+      geometry: createDefaultGeometry(),
+    };
+    this.selectedNodeId = node.id;
   }
 
   /** Save current edits to localStorage for the given asset */
   saveToStorage(assetId: string): void {
     if (!assetId) return;
     const key = `redbulb-edits-${assetId}`;
-    const data = this.serialize();
-    if (!this.hasChanges) {
-      // No changes — remove saved data
+    if (!this.hasChanges && (!this._nodeGraph || this._nodeGraph.nodes.length <= 1)) {
       localStorage.removeItem(key);
       return;
     }
+    // Save v2 if node graph exists, otherwise v1
+    const data = this.serializeV2() ?? this.serialize();
     localStorage.setItem(key, JSON.stringify(data));
   }
 
@@ -452,7 +633,15 @@ class DevelopManager implements EditToolManager {
     return [];
   }
 
-  /** Serialize all edit state to a plain JSON object for XMP storage */
+  /** Serialize all edit state. Returns v2 (node graph) if nodes exist, v1 otherwise. */
+  serializeV2(): NodeGraphV2 | null {
+    if (!this._nodeGraph) return null;
+    // Save current panel state to the selected node before serializing
+    this._saveCurrentToNode();
+    return JSON.parse(JSON.stringify(this._nodeGraph));
+  }
+
+  /** Serialize current PANEL state as v1 (used internally and by workers) */
   serialize(): Record<string, unknown> {
     return {
       version: 1,
@@ -505,10 +694,37 @@ class DevelopManager implements EditToolManager {
     };
   }
 
-  /** Restore all edit state from a serialized JSON object */
+  /** Restore all edit state from a serialized JSON object (v1 or v2) */
   deserialize(data: Record<string, unknown>): void {
     if (!data || typeof data !== 'object') return;
     const d = data as any;
+
+    // Handle v2 node graph
+    if (d.version === 2 && Array.isArray(d.nodes)) {
+      this._nodeGraph = JSON.parse(JSON.stringify(d)) as NodeGraphV2;
+      this.selectedNodeId = d.selectedNodeId || d.nodes[0]?.id || '';
+      // Load geometry (global)
+      if (d.geometry) {
+        this.geoRotation = d.geometry.rotation ?? 0;
+        this.geoDistortion = d.geometry.distortion ?? 0;
+        this.geoVertical = d.geometry.vertical ?? 0;
+        this.geoHorizontal = d.geometry.horizontal ?? 0;
+        this.geoScale = d.geometry.scale ?? 100;
+      }
+      // Load selected node's state into panel
+      const selectedNode = this._nodeGraph!.nodes.find(n => n.id === this.selectedNodeId);
+      if (selectedNode) {
+        this._deserializeV1(selectedNode.state as any);
+      }
+      return;
+    }
+
+    // Handle v1 (single state)
+    this._deserializeV1(d);
+  }
+
+  /** Internal: deserialize v1 panel state */
+  private _deserializeV1(d: any): void {
 
     // Basic
     if (d.basic) {

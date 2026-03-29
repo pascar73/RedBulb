@@ -11,7 +11,7 @@
   import HistoryPanel from './history-panel.svelte';
   import NodeEditor from './node-editor.svelte';
   import FloatingNodePanel from './floating-node-panel.svelte';
-  import { type NodeGraph, legacyStateToNodeGraph, NODE_REGISTRY, type NodeType } from '../node-types';
+  import { type NodeGraphV2 } from '../node-types';
 
   let saveStatus = $state<'idle' | 'saved' | 'saving'>('idle');
   let saveTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -165,24 +165,9 @@
 
   // ── Node Editor state ──
   let nodeEditorPoppedOut = $state(false);
-  let nodeGraph = $state<NodeGraph>(legacyStateToNodeGraph(developManager.serialize()));
-  let selectedNodeId = $state<string | null>(null);
   let graphContentW = $state(0);
   let graphContentH = $state(0);
   let nodeEditorZoom = $state(1);
-
-  // Sync node graph when sliders change (legacy → graph bridge)
-  $effect(() => {
-    nodeGraph = legacyStateToNodeGraph(developManager.serialize());
-  });
-
-  function handleGraphChange(newGraph: NodeGraph) {
-    nodeGraph = newGraph;
-  }
-
-  function handleSelectNode(id: string | null) {
-    selectedNodeId = id;
-  }
 
   function handleDimensionsChange(w: number, h: number) {
     graphContentW = w;
@@ -418,10 +403,6 @@
       {#if !collapsed.nodeEditor}
         <div class="section-content node-editor-inline">
           <NodeEditor
-            graph={nodeGraph}
-            onGraphChange={handleGraphChange}
-            {selectedNodeId}
-            onSelectNode={handleSelectNode}
             onDimensionsChange={handleDimensionsChange}
             onZoomChange={(z) => nodeEditorZoom = z}
           />
@@ -453,10 +434,6 @@
       currentZoom={nodeEditorZoom}
     >
       <NodeEditor
-        graph={nodeGraph}
-        onGraphChange={handleGraphChange}
-        {selectedNodeId}
-        onSelectNode={handleSelectNode}
         onDimensionsChange={handleDimensionsChange}
         onZoomChange={(z) => nodeEditorZoom = z}
       />
