@@ -97,6 +97,8 @@
         // Non-fatal — XMP is the primary save
       }
 
+      // Also persist to localStorage for instant restore within session
+      developManager.saveToStorage(asset.id);
       toastManager.success('Edits saved (XMP sidecar)');
     } catch (error) {
       console.error('XMP save failed:', error);

@@ -200,8 +200,11 @@ class DevelopManager implements EditToolManager {
   }));
 
   async onActivate(asset: AssetResponseDto, edits: EditActions): Promise<void> {
-    // Load saved edits from localStorage
-    this.loadFromStorage(asset.id);
+    // Try localStorage first (in-session edits), then server (persisted XMP/history)
+    const loaded = this.loadFromStorage(asset.id);
+    if (!loaded) {
+      await this.loadFromServer(asset.id);
+    }
   }
 
   onDeactivate(): void {
@@ -282,17 +285,36 @@ class DevelopManager implements EditToolManager {
     localStorage.setItem(key, JSON.stringify(data));
   }
 
-  /** Load saved edits from localStorage for the given asset */
-  loadFromStorage(assetId: string): void {
-    if (!assetId) return;
+  /** Load saved edits from localStorage for the given asset. Returns true if found. */
+  loadFromStorage(assetId: string): boolean {
+    if (!assetId) return false;
     const key = `redbulb-edits-${assetId}`;
     const raw = localStorage.getItem(key);
-    if (!raw) return;
+    if (!raw) return false;
     try {
       const data = JSON.parse(raw);
       this.deserialize(data);
+      return true;
     } catch {
-      // Corrupted data — ignore
+      return false;
+    }
+  }
+
+  /** Load saved edits from server (history API). */
+  async loadFromServer(assetId: string): Promise<boolean> {
+    if (!assetId) return false;
+    try {
+      const baseUrl = `${window.location.protocol}//${window.location.hostname}:3380`;
+      const res = await fetch(`${baseUrl}/api/assets/${assetId}/develop-history/current`);
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data?.state && typeof data.state === 'object') {
+        this.deserialize(data.state);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
     }
   }
 
