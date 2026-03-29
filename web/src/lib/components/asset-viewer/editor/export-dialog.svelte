@@ -15,9 +15,11 @@
 
   let format = $state<'jpeg' | 'png'>('jpeg');
   let quality = $state(92);
-  let resizeMode = $state<'original' | 'longEdge' | 'megapixels'>('original');
+  let resizeMode = $state<'original' | 'longEdge' | 'megapixels' | 'custom'>('original');
   let longEdge = $state(2048);
   let megapixels = $state(2);
+  let customWidth = $state(1920);
+  let customHeight = $state(1080);
   let isExporting = $state(false);
   let progress = $state('');
 
@@ -41,8 +43,8 @@
         colorWheels: developManager.colorWheels,
         format,
         quality: quality / 100,
-        resizeMode,
-        longEdge: resizeMode === 'longEdge' ? longEdge : undefined,
+        resizeMode: resizeMode === 'custom' ? 'longEdge' : resizeMode,
+        longEdge: resizeMode === 'longEdge' ? longEdge : resizeMode === 'custom' ? Math.max(customWidth, customHeight) : undefined,
         megapixels: resizeMode === 'megapixels' ? megapixels : undefined,
         onProgress: (stage: string) => {
           progress = stage;
@@ -164,6 +166,30 @@
                   onclick={() => (megapixels = mp)}
                 >{mp}MP</button>
               {/each}
+            </div>
+          {/if}
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" bind:group={resizeMode} value="custom" class="accent-immich-primary" />
+            <span class="text-sm">Custom</span>
+          </label>
+          {#if resizeMode === 'custom'}
+            <div class="ml-6 flex items-center gap-2">
+              <input
+                type="number"
+                bind:value={customWidth}
+                min="100"
+                max="20000"
+                class="w-20 px-2 py-1 rounded bg-white/10 text-sm text-white border border-white/20 focus:border-immich-primary focus:outline-none"
+              />
+              <span class="text-xs text-gray-400">×</span>
+              <input
+                type="number"
+                bind:value={customHeight}
+                min="100"
+                max="20000"
+                class="w-20 px-2 py-1 rounded bg-white/10 text-sm text-white border border-white/20 focus:border-immich-primary focus:outline-none"
+              />
+              <span class="text-xs text-gray-400">px</span>
             </div>
           {/if}
         </div>

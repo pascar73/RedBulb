@@ -17,6 +17,7 @@
 
 import { buildCurveLUT } from './develop-tool/curve-engine';
 import type { ExportWorkerRequest, ExportWorkerResponse } from './export-worker';
+import ExportWorkerModule from './export-worker?worker';
 
 export interface ExportOptions {
   /** URL of the full-resolution original image */
@@ -141,8 +142,7 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
   onProgress?.('Rendering...', 25);
 
   // ── Stage 4: Send to export worker (linear-space RapidRAW pipeline) ──
-  const workerUrl = new URL('./export-worker.ts', import.meta.url);
-  const worker = new Worker(workerUrl, { type: 'module' });
+  const worker = new ExportWorkerModule();
 
   const processedData = await new Promise<ImageData>((resolve, reject) => {
     // Generous timeout for full-res (could be 50MP+ images)
