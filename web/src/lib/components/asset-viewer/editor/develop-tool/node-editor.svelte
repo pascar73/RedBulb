@@ -50,28 +50,24 @@
     return () => ro.disconnect();
   });
 
-  // ── Canvas bounds (derived from node positions) ──
-  const canvasBounds = $derived.by(() => {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  // ── Canvas size (derived from node positions) ──
+  const canvasW = $derived.by(() => {
+    let maxX = 0;
     for (let i = 0; i < nodes.length; i++) {
       const p = getNodePos(nodes[i], i);
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
       maxX = Math.max(maxX, p.x + NODE_W);
-      maxY = Math.max(maxY, p.y + NODE_H);
     }
-    if (nodes.length === 0) { minX = 0; minY = 0; maxX = 200; maxY = 100; }
-    const pad = 60;
-    return {
-      w: Math.max(300, maxX - minX + pad * 2 + 80),
-      h: Math.max(140, maxY - minY + pad * 2),
-      ox: minX - pad - 40, // origin offset x
-      oy: minY - pad,      // origin offset y
-    };
+    return Math.max(400, maxX + 80);
   });
 
-  const canvasW = $derived(canvasBounds.w);
-  const canvasH = $derived(canvasBounds.h);
+  const canvasH = $derived.by(() => {
+    let maxY = 0;
+    for (let i = 0; i < nodes.length; i++) {
+      const p = getNodePos(nodes[i], i);
+      maxY = Math.max(maxY, p.y + NODE_H);
+    }
+    return Math.max(180, maxY + 40);
+  });
 
   // ── Zoom & Pan ──
   let userZoom = $state<number | null>(null);
@@ -125,12 +121,11 @@
 
   function resetToFit() { userZoom = null; panX = 0; panY = 0; }
 
-  // ── I/O connector positions (in SVG canvas coordinates) ──
-  // IN is at the left edge of the canvas, OUT at the right edge
-  // Both vertically centered on the canvas
-  const ioY = $derived(canvasH / 2 - canvasBounds.oy);
-  const inputX = $derived(8 - canvasBounds.ox);
-  const outputX = $derived(canvasW - 8 - canvasBounds.ox);
+  // ── I/O wire endpoints (in SVG coordinates) ──
+  // These are where wires attach — at the edges of the canvas, vertically centered
+  const ioY = $derived(canvasH / 2);
+  const inputX = 16;
+  const outputX = $derived(canvasW - 16);
 
   // ── Bezier wires ──
   function bezierPath(x1: number, y1: number, x2: number, y2: number): string {
@@ -150,28 +145,24 @@
     const sorted = nodes.map((n, i) => ({ node: n, pos: getNodePos(n, i) }))
       .sort((a, b) => a.pos.x - b.pos.x);
 
-    // IN → first node
+    // IN → first node (input connector on left side of node)
     const first = sorted[0];
-    const fcy = first.pos.y + NODE_H / 2;
-    result.push({ d: bezierPath(inputX, ioY, first.pos.x - canvasBounds.ox, fcy - canvasBounds.oy), active: true });
+    result.push({ d: bezierPath(inputX, ioY, first.pos.x, first.pos.y + NODE_H / 2), active: true });
 
-    // Node → Node wires
+    // Node → Node wires (output of one → input of next)
     for (let i = 0; i < sorted.length - 1; i++) {
       const a = sorted[i], b = sorted[i + 1];
-      const ax = a.pos.x + NODE_W - canvasBounds.ox;
-      const ay = a.pos.y + NODE_H / 2 - canvasBounds.oy;
-      const bx = b.pos.x - canvasBounds.ox;
-      const by = b.pos.y + NODE_H / 2 - canvasBounds.oy;
       const active = !a.node.bypass && hasActiveChanges(a.node.state);
-      result.push({ d: bezierPath(ax, ay, bx, by), active });
+      result.push({ d: bezierPath(
+        a.pos.x + NODE_W, a.pos.y + NODE_H / 2,
+        b.pos.x, b.pos.y + NODE_H / 2,
+      ), active });
     }
 
     // Last node → OUT
     const last = sorted[sorted.length - 1];
-    const lx = last.pos.x + NODE_W - canvasBounds.ox;
-    const ly = last.pos.y + NODE_H / 2 - canvasBounds.oy;
     const lastActive = !last.node.bypass && hasActiveChanges(last.node.state);
-    result.push({ d: bezierPath(lx, ly, outputX, ioY), active: lastActive });
+    result.push({ d: bezierPath(last.pos.x + NODE_W, last.pos.y + NODE_H / 2, outputX, ioY), active: lastActive });
 
     return result;
   });
@@ -286,7 +277,7 @@
   <svg
     width={canvasW}
     height={canvasH}
-    viewBox="{canvasBounds.ox} {canvasBounds.oy} {canvasW} {canvasH}"
+    viewBox="0 0 {canvasW} {canvasH}"
     style="transform: translate({translateX}px, {translateY}px) scale({zoom}); transform-origin: 0 0;"
     class="node-svg"
   >
