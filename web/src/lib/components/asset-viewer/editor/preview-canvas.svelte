@@ -358,10 +358,18 @@
     // Horizontal perspective: rotateY tilts left/right
     if (horiz !== 0) parts.push(`rotateY(${horiz * 0.3}deg)`);
 
-    // Fine rotation
-    if (rot !== 0) parts.push(`rotate(${rot}deg)`);
+    // Fine rotation + auto-scale to fill frame (crop inscribed rectangle)
+    if (rot !== 0) {
+      parts.push(`rotate(${rot}deg)`);
+      // When rotating, scale up so the rotated image fills the original frame.
+      // The inscribed rectangle of a rotated rectangle requires:
+      // coverScale = cos(θ) + sin(θ) * (aspect or 1) — simplified for small angles
+      const absRad = Math.abs(rot * Math.PI / 180);
+      const coverScale = Math.cos(absRad) + Math.sin(absRad);
+      parts.push(`scale(${coverScale.toFixed(4)})`);
+    }
 
-    // Scale
+    // User scale (on top of auto-cover scale)
     if (scale !== 1) parts.push(`scale(${scale})`);
 
     return parts.join(' ');
@@ -369,7 +377,7 @@
 </script>
 
 <!-- Wrapper follows the same zoom transform as the <img> element -->
-<div class="absolute inset-0 w-full h-full pointer-events-none" style={zoomTransform}>
+<div class="absolute inset-0 w-full h-full pointer-events-none overflow-hidden" style={zoomTransform}>
   <canvas
     bind:this={canvas}
     class="absolute inset-0 w-full h-full object-contain"
