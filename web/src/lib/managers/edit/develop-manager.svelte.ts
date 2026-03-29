@@ -54,6 +54,13 @@ class DevelopManager implements EditToolManager {
   grainRoughness = $state(50);
   fade = $state(0);
 
+  // Geometry — perspective/distortion transforms (RapidRAW-style)
+  geoRotation = $state(0);       // Fine rotation in degrees (-45 to +45)
+  geoDistortion = $state(0);     // Barrel/pincushion (-100 to +100)
+  geoVertical = $state(0);       // Vertical perspective / keystone (-100 to +100)
+  geoHorizontal = $state(0);     // Horizontal perspective (-100 to +100)
+  geoScale = $state(100);        // Scale after transform (50 to 200, default 100)
+
   // Tone curves - array of control points per channel
   curves = $state({
     master: [] as Array<{x: number, y: number}>,
@@ -113,6 +120,15 @@ class DevelopManager implements EditToolManager {
       this.fade !== 0
     );
 
+    // Check geometry
+    const hasGeoChanges = (
+      this.geoRotation !== 0 ||
+      this.geoDistortion !== 0 ||
+      this.geoVertical !== 0 ||
+      this.geoHorizontal !== 0 ||
+      this.geoScale !== 100
+    );
+
     // Check curves (any channel has control points)
     const hasCurveChanges = (
       this.curves.master.length > 0 ||
@@ -136,7 +152,7 @@ class DevelopManager implements EditToolManager {
       channel => channel.h !== 0 || channel.s !== 0 || channel.l !== 0
     );
 
-    return hasParamChanges || hasCurveChanges || hasColorWheelChanges || hasHslChanges || hasEndpointChanges;
+    return hasParamChanges || hasCurveChanges || hasColorWheelChanges || hasHslChanges || hasEndpointChanges || hasGeoChanges;
   });
 
   canReset = $derived(this.hasChanges);
@@ -172,6 +188,11 @@ class DevelopManager implements EditToolManager {
     grainSize: this.grainSize,
     grainRoughness: this.grainRoughness,
     fade: this.fade,
+    geoRotation: this.geoRotation,
+    geoDistortion: this.geoDistortion,
+    geoVertical: this.geoVertical,
+    geoHorizontal: this.geoHorizontal,
+    geoScale: this.geoScale,
     curves: this.curves,
     curveEndpoints: this.curveEndpoints,
     hsl: this.hsl,
@@ -215,6 +236,13 @@ class DevelopManager implements EditToolManager {
     this.grainSize = 25;
     this.grainRoughness = 50;
     this.fade = 0;
+
+    // Reset geometry
+    this.geoRotation = 0;
+    this.geoDistortion = 0;
+    this.geoVertical = 0;
+    this.geoHorizontal = 0;
+    this.geoScale = 100;
 
     // Reset curves
     this.curves.master = [];
@@ -323,6 +351,13 @@ class DevelopManager implements EditToolManager {
         grainRoughness: this.grainRoughness,
         fade: this.fade,
       },
+      geometry: {
+        rotation: this.geoRotation,
+        distortion: this.geoDistortion,
+        vertical: this.geoVertical,
+        horizontal: this.geoHorizontal,
+        scale: this.geoScale,
+      },
       curves: JSON.parse(JSON.stringify(this.curves)),
       curveEndpoints: JSON.parse(JSON.stringify(this.curveEndpoints)),
       colorWheels: JSON.parse(JSON.stringify(this.colorWheels)),
@@ -378,6 +413,15 @@ class DevelopManager implements EditToolManager {
       this.grainSize = d.effects.grainSize ?? 25;
       this.grainRoughness = d.effects.grainRoughness ?? 50;
       this.fade = d.effects.fade ?? 0;
+    }
+
+    // Geometry
+    if (d.geometry) {
+      this.geoRotation = d.geometry.rotation ?? 0;
+      this.geoDistortion = d.geometry.distortion ?? 0;
+      this.geoVertical = d.geometry.vertical ?? 0;
+      this.geoHorizontal = d.geometry.horizontal ?? 0;
+      this.geoScale = d.geometry.scale ?? 100;
     }
 
     // Curves

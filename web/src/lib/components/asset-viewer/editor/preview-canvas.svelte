@@ -324,6 +324,48 @@
   
   // Per-pixel processing (curves, HSL, color grading, grain) is now in preview-worker.ts
   // Film grain moved to worker pipeline (Module 5) — no more CSS overlay
+
+  // ── Geometry transform (CSS perspective/rotate/distortion) ──
+  // Applied as CSS transform on the canvas for real-time preview.
+  // RapidRAW-style: rotation + perspective (vertical/horizontal) + scale
+  const geoTransform = $derived.by(() => {
+    const p = developManager.params;
+    const rot = p.geoRotation ?? 0;
+    const distort = p.geoDistortion ?? 0;
+    const vert = p.geoVertical ?? 0;
+    const horiz = p.geoHorizontal ?? 0;
+    const scale = (p.geoScale ?? 100) / 100;
+
+    const hasGeo = rot !== 0 || distort !== 0 || vert !== 0 || horiz !== 0 || scale !== 1;
+    if (!hasGeo) return '';
+
+    // Build CSS transform chain:
+    // 1. Perspective container (needed for perspective transforms)
+    // 2. Vertical keystone: rotateX maps to vertical perspective
+    // 3. Horizontal keystone: rotateY maps to horizontal perspective
+    // 4. Fine rotation
+    // 5. Scale (after all transforms)
+    const parts: string[] = [];
+
+    // Perspective projection distance (controls how dramatic the effect is)
+    if (vert !== 0 || horiz !== 0) {
+      parts.push('perspective(800px)');
+    }
+
+    // Vertical perspective: rotateX tilts top/bottom
+    if (vert !== 0) parts.push(`rotateX(${vert * 0.3}deg)`);
+
+    // Horizontal perspective: rotateY tilts left/right
+    if (horiz !== 0) parts.push(`rotateY(${horiz * 0.3}deg)`);
+
+    // Fine rotation
+    if (rot !== 0) parts.push(`rotate(${rot}deg)`);
+
+    // Scale
+    if (scale !== 1) parts.push(`scale(${scale})`);
+
+    return parts.join(' ');
+  });
 </script>
 
 <!-- Wrapper follows the same zoom transform as the <img> element -->
@@ -334,6 +376,8 @@
     class:pointer-events-auto={developManager.eyedropperActive}
     class:cursor-crosshair={developManager.eyedropperActive}
     style:display={developManager.hasChanges || developManager.eyedropperActive ? 'block' : 'none'}
+    style:transform={geoTransform || undefined}
+    style:transform-origin="center center"
     onclick={handleEyedropperClick}
   ></canvas>
 

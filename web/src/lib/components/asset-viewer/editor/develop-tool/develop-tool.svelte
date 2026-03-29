@@ -267,6 +267,15 @@
     { label: 'CA Correction', key: 'caCorrection', min: 0, max: 1, step: 0.01 },
   ];
 
+  // --- GEOMETRY section (RapidRAW-style perspective/distortion) ---
+  const geometrySliders: SliderConfig[] = [
+    { label: 'Rotation', key: 'geoRotation', min: -45, max: 45, step: 0.1 },
+    { label: 'Distortion', key: 'geoDistortion', min: -100, max: 100, step: 1 },
+    { label: 'Vertical', key: 'geoVertical', min: -100, max: 100, step: 1 },
+    { label: 'Horizontal', key: 'geoHorizontal', min: -100, max: 100, step: 1 },
+    { label: 'Scale', key: 'geoScale', min: 50, max: 200, step: 1 },
+  ];
+
   // Legacy aliases for template compatibility
   const basicSliders = lightSliders;
   const toneSliders: SliderConfig[] = [];
@@ -287,6 +296,7 @@
     hsl: true,
     detail: true,
     lens: true,
+    geometry: true,
     effects: true,
     history: true,
   });
@@ -636,6 +646,16 @@
     {#if !collapsed.lens}
       <div class="section-content">
         {@render sliderGroup(lensSliders)}
+      </div>
+    {/if}
+  </div>
+
+  <!-- GEOMETRY -->
+  <div class="section-card">
+    {@render sectionHeader('geometry', 'Geometry', geometrySliders)}
+    {#if !collapsed.geometry}
+      <div class="section-content">
+        {@render sliderGroup(geometrySliders)}
       </div>
     {/if}
   </div>
