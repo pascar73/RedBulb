@@ -89,6 +89,8 @@ export interface ExportOptions {
   longEdge?: number;
   /** Target megapixels */
   megapixels?: number;
+  /** If true, return raw RGBA pixels instead of encoded blob (for TIFF encoding) */
+  returnPixels?: boolean;
   /** Progress callback */
   onProgress?: (stage: string, percent: number) => void;
 }
@@ -327,7 +329,21 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
 
   onProgress?.('Encoding...', 90);
 
-  // ── Stage 6: Encode to Blob ──
+  // ── Stage 6: Return raw pixels (for TIFF) or encode to Blob ──
+  if (options.returnPixels) {
+    const outCtx = outputCanvas.getContext('2d')!;
+    const outData = outCtx.getImageData(0, 0, outputCanvas.width, outputCanvas.height);
+    onProgress?.('Done', 100);
+    // Return a Blob-like object with __tungstenPixels attached
+    const fakeBlob = new Blob([]) as any;
+    fakeBlob.__tungstenPixels = {
+      pixels: outData.data,
+      width: outputCanvas.width,
+      height: outputCanvas.height,
+    };
+    return fakeBlob;
+  }
+
   const blob = await new Promise<Blob>((resolve, reject) => {
     outputCanvas.toBlob(
       (b) => {

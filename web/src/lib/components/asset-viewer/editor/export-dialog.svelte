@@ -2,6 +2,7 @@
   import { Button, HStack } from '@immich/ui';
   import { exportDevelopedImage } from './export-pipeline';
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
+  import { Tungsten, printSize, type BitDepth, type ColorSpace, type Compression as TiffCompression } from './tungsten-tiff';
   import type { AssetResponseDto } from '@immich/sdk';
   import { getAssetUrls } from '$lib/utils';
 
@@ -13,9 +14,16 @@
     onClose: () => void;
   } = $props();
 
-  let format = $state<'jpeg' | 'png'>('jpeg');
+  let format = $state<'jpeg' | 'png' | 'tiff'>('jpeg');
   let quality = $state(92);
   let resizeMode = $state<'original' | 'longEdge' | 'megapixels' | 'custom'>('original');
+
+  // TIFF options
+  let tiffBitDepth = $state<BitDepth>(16);
+  let tiffColorSpace = $state<ColorSpace>('srgb');
+  let tiffCompression = $state<TiffCompression>('lzw');
+  let tiffDpi = $state(300);
+  let tiffEmbedICC = $state(true);
   let longEdge = $state(2048);
   let megapixels = $state(2);
   // Aspect ratio from original image
@@ -41,6 +49,30 @@
 
   const LONG_EDGE_PRESETS = [1024, 1920, 2048, 3840, 4096];
   const MP_PRESETS = [1, 2, 4, 8, 12, 16];
+  const DPI_PRESETS = [72, 150, 300, 600];
+
+  // Live print size calculator
+  const exportWidth = $derived.by(() => {
+    if (resizeMode === 'longEdge') return Math.max(origW, origH) === origW ? longEdge : Math.round(longEdge * aspectRatio);
+    if (resizeMode === 'megapixels') {
+      const targetPx = megapixels * 1_000_000;
+      const scale = Math.sqrt(targetPx / (origW * origH));
+      return Math.round(origW * scale);
+    }
+    if (resizeMode === 'custom') return customWidth;
+    return origW;
+  });
+  const exportHeight = $derived.by(() => {
+    if (resizeMode === 'longEdge') return Math.max(origW, origH) === origH ? longEdge : Math.round(longEdge / aspectRatio);
+    if (resizeMode === 'megapixels') {
+      const targetPx = megapixels * 1_000_000;
+      const scale = Math.sqrt(targetPx / (origW * origH));
+      return Math.round(origH * scale);
+    }
+    if (resizeMode === 'custom') return customHeight;
+    return origH;
+  });
+  const printInfo = $derived(format === 'tiff' ? printSize(exportWidth, exportHeight, tiffDpi) : null);
 
   async function doExport() {
     if (isExporting) return;
@@ -50,6 +82,9 @@
     try {
       const urls = getAssetUrls(asset);
 
+      // For TIFF, we need raw RGBA pixels from the pipeline, then encode with Tungsten
+      const isTiff = format === 'tiff';
+
       const blob = await exportDevelopedImage({
         originalUrl: urls.original,
         params: developManager.params,
@@ -57,22 +92,46 @@
         curveEndpoints: developManager.curveEndpoints,
         hsl: developManager.hsl,
         colorWheels: developManager.colorWheels,
-        format,
+        format: isTiff ? 'png' : format,
         quality: quality / 100,
         resizeMode: resizeMode === 'custom' ? 'longEdge' : resizeMode,
         longEdge: resizeMode === 'longEdge' ? longEdge : resizeMode === 'custom' ? Math.max(customWidth, customHeight) : undefined,
         megapixels: resizeMode === 'megapixels' ? megapixels : undefined,
+        returnPixels: isTiff,
         onProgress: (stage: string) => {
           progress = stage;
         },
       });
 
+      let finalBlob: Blob;
+
+      if (isTiff && (blob as any).__tungstenPixels) {
+        progress = 'Encoding TIFF...';
+        const { pixels, width, height } = (blob as any).__tungstenPixels;
+        const result = Tungsten.encode({
+          width,
+          height,
+          pixels,
+          bitDepth: tiffBitDepth,
+          colorSpace: tiffColorSpace,
+          compression: tiffCompression,
+          dpi: tiffDpi,
+          embedICC: tiffEmbedICC,
+          software: 'RedBulb / Tungsten Engine',
+        });
+        finalBlob = result.blob;
+        progress = `TIFF: ${(result.fileSize / 1024 / 1024).toFixed(1)} MB — ${result.meta.printWidth} × ${result.meta.printHeight} @ ${tiffDpi} DPI`;
+        await new Promise(r => setTimeout(r, 1200)); // let user see the info
+      } else {
+        finalBlob = blob as Blob;
+      }
+
       // Download the file
-      const ext = format === 'jpeg' ? 'jpg' : format;
+      const ext = format === 'jpeg' ? 'jpg' : format === 'tiff' ? 'tif' : format;
       const baseName = (asset.originalFileName || 'export').replace(/\.[^.]+$/, '');
       const fileName = `${baseName}_export.${ext}`;
 
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(finalBlob);
       const a = document.createElement('a');
       a.href = url;
       a.download = fileName;
@@ -121,8 +180,107 @@
               {format === 'png' ? 'bg-immich-primary text-white' : 'bg-white/10 text-gray-300 hover:bg-white/15'}"
             onclick={() => (format = 'png')}
           >PNG</button>
+          <button
+            class="flex-1 py-2 rounded-lg text-sm font-medium transition-colors
+              {format === 'tiff' ? 'bg-amber-600 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/15'}"
+            onclick={() => (format = 'tiff')}
+          >TIFF</button>
         </div>
       </div>
+
+      <!-- TIFF Settings -->
+      {#if format === 'tiff'}
+        <div class="space-y-3 p-3 rounded-lg bg-white/5 border border-amber-600/30">
+          <div class="flex items-center gap-1.5">
+            <span class="text-amber-500 text-xs font-semibold">⚡ Tungsten Engine</span>
+            <span class="text-[10px] text-gray-500">Professional TIFF Export</span>
+          </div>
+
+          <!-- Bit Depth -->
+          <div>
+            <label class="text-xs text-gray-400">Bit Depth</label>
+            <div class="flex gap-2 mt-1">
+              <button
+                class="flex-1 py-1.5 rounded text-xs font-medium transition-colors
+                  {tiffBitDepth === 8 ? 'bg-amber-600 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/15'}"
+                onclick={() => (tiffBitDepth = 8)}
+              >8-bit</button>
+              <button
+                class="flex-1 py-1.5 rounded text-xs font-medium transition-colors
+                  {tiffBitDepth === 16 ? 'bg-amber-600 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/15'}"
+                onclick={() => (tiffBitDepth = 16)}
+              >16-bit</button>
+            </div>
+          </div>
+
+          <!-- Color Space -->
+          <div>
+            <label class="text-xs text-gray-400">Color Space</label>
+            <div class="flex gap-2 mt-1">
+              <button
+                class="flex-1 py-1.5 rounded text-[11px] font-medium transition-colors
+                  {tiffColorSpace === 'srgb' ? 'bg-amber-600 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/15'}"
+                onclick={() => (tiffColorSpace = 'srgb')}
+              >sRGB</button>
+              <button
+                class="flex-1 py-1.5 rounded text-[11px] font-medium transition-colors
+                  {tiffColorSpace === 'adobe-rgb' ? 'bg-amber-600 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/15'}"
+                onclick={() => (tiffColorSpace = 'adobe-rgb')}
+              >Adobe RGB</button>
+              <button
+                class="flex-1 py-1.5 rounded text-[11px] font-medium transition-colors
+                  {tiffColorSpace === 'prophoto-rgb' ? 'bg-amber-600 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/15'}"
+                onclick={() => (tiffColorSpace = 'prophoto-rgb')}
+              >ProPhoto</button>
+            </div>
+          </div>
+
+          <!-- Compression -->
+          <div>
+            <label class="text-xs text-gray-400">Compression</label>
+            <div class="flex gap-2 mt-1">
+              <button
+                class="flex-1 py-1.5 rounded text-xs font-medium transition-colors
+                  {tiffCompression === 'none' ? 'bg-amber-600 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/15'}"
+                onclick={() => (tiffCompression = 'none')}
+              >None</button>
+              <button
+                class="flex-1 py-1.5 rounded text-xs font-medium transition-colors
+                  {tiffCompression === 'lzw' ? 'bg-amber-600 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/15'}"
+                onclick={() => (tiffCompression = 'lzw')}
+              >LZW</button>
+            </div>
+          </div>
+
+          <!-- DPI -->
+          <div>
+            <label class="text-xs text-gray-400">Resolution (DPI)</label>
+            <div class="flex gap-1.5 mt-1">
+              {#each DPI_PRESETS as d}
+                <button
+                  class="flex-1 py-1.5 rounded text-xs font-medium transition-colors
+                    {tiffDpi === d ? 'bg-amber-600 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/15'}"
+                  onclick={() => (tiffDpi = d)}
+                >{d}</button>
+              {/each}
+            </div>
+          </div>
+
+          <!-- ICC Profile toggle -->
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" bind:checked={tiffEmbedICC} class="accent-amber-500" />
+            <span class="text-xs text-gray-300">Embed ICC Profile</span>
+          </label>
+
+          <!-- Print size calculator -->
+          {#if printInfo}
+            <div class="mt-2 p-2 rounded bg-black/30 border border-white/10">
+              <div class="text-[10px] text-gray-500 uppercase tracking-wide">Print Size @ {tiffDpi} DPI</div>
+              <div class="text-sm text-white mt-0.5 font-medium">📐 {printInfo.label}</div>
+            </div>
+          {/if}
+        </div>
+      {/if}
 
       <!-- Quality (JPEG only) -->
       {#if format === 'jpeg'}
