@@ -14,27 +14,23 @@
   const selectedId = $derived(developManager.selectedNodeId);
 
   // ── Per-node positions (draggable) ──
-  let nodePositions = $state<Map<string, { x: number; y: number }>>(new Map());
+  // Use a plain object (not Map) to avoid Svelte proxy issues
+  let positionStore: Record<string, { x: number; y: number }> = {};
+  let posTick = $state(0); // bump to trigger reactivity
 
-  function getNodePos(node: CorrectorNode, idx: number): { x: number; y: number } {
-    const stored = nodePositions.get(node.id);
-    if (stored) return stored;
-    // Default: horizontal chain
-    return { x: 80 + idx * (NODE_W + NODE_GAP), y: 60 };
+  function getNodePos(nodeId: string, idx: number): { x: number; y: number } {
+    void posTick; // subscribe to changes
+    if (positionStore[nodeId]) return positionStore[nodeId];
+    // Lazily initialize default position
+    const pos = { x: 80 + idx * (NODE_W + NODE_GAP), y: 60 };
+    positionStore[nodeId] = pos;
+    return pos;
   }
 
-  // Initialize positions for new nodes
-  $effect(() => {
-    for (let i = 0; i < nodes.length; i++) {
-      if (!nodePositions.has(nodes[i].id)) {
-        nodePositions.set(nodes[i].id, { x: 80 + i * (NODE_W + NODE_GAP), y: 60 });
-      }
-    }
-    // Clean up positions for deleted nodes
-    for (const id of nodePositions.keys()) {
-      if (!nodes.find(n => n.id === id)) nodePositions.delete(id);
-    }
-  });
+  function setNodePos(nodeId: string, x: number, y: number) {
+    positionStore[nodeId] = { x, y };
+    posTick++; // trigger reactivity
+  }
 
   // ── Viewport ──
   let canvasEl = $state<HTMLDivElement | undefined>(undefined);
@@ -52,18 +48,20 @@
 
   // ── Canvas size (derived from node positions) ──
   const canvasW = $derived.by(() => {
+    void posTick;
     let maxX = 0;
     for (let i = 0; i < nodes.length; i++) {
-      const p = getNodePos(nodes[i], i);
+      const p = getNodePos(nodes[i].id, i);
       maxX = Math.max(maxX, p.x + NODE_W);
     }
     return Math.max(400, maxX + 80);
   });
 
   const canvasH = $derived.by(() => {
+    void posTick;
     let maxY = 0;
     for (let i = 0; i < nodes.length; i++) {
-      const p = getNodePos(nodes[i], i);
+      const p = getNodePos(nodes[i].id, i);
       maxY = Math.max(maxY, p.y + NODE_H);
     }
     return Math.max(180, maxY + 40);
@@ -141,8 +139,9 @@
     const result: { d: string; active: boolean }[] = [];
     if (nodes.length === 0) return result;
 
+    void posTick;
     // Get positions sorted by x for wire order
-    const sorted = nodes.map((n, i) => ({ node: n, pos: getNodePos(n, i) }))
+    const sorted = nodes.map((n, i) => ({ node: n, pos: getNodePos(n.id, i) }))
       .sort((a, b) => a.pos.x - b.pos.x);
 
     // IN → first node (input connector on left side of node)
@@ -179,19 +178,14 @@
     draggingNodeId = nodeId;
     dragStartMouse = { x: e.clientX, y: e.clientY };
     const idx = nodes.findIndex(n => n.id === nodeId);
-    const pos = getNodePos(nodes[idx], idx);
+    const pos = getNodePos(nodeId, idx);
     dragStartPos = { x: pos.x, y: pos.y };
 
     const onMove = (ev: MouseEvent) => {
       if (!draggingNodeId) return;
       const dx = (ev.clientX - dragStartMouse.x) / zoom;
       const dy = (ev.clientY - dragStartMouse.y) / zoom;
-      nodePositions.set(draggingNodeId, {
-        x: dragStartPos.x + dx,
-        y: dragStartPos.y + dy,
-      });
-      // Force reactivity
-      nodePositions = new Map(nodePositions);
+      setNodePos(draggingNodeId, Math.max(20, dragStartPos.x + dx), Math.max(10, dragStartPos.y + dy));
     };
 
     const onUp = (ev: MouseEvent) => {
@@ -288,7 +282,7 @@
 
     <!-- Nodes -->
     {#each nodes as node, i (node.id)}
-      {@const pos = getNodePos(node, i)}
+      {@const pos = getNodePos(node.id, i)}
       {@const nx = pos.x}
       {@const ny = pos.y}
       {@const isSelected = node.id === selectedId}
