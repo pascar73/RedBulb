@@ -200,10 +200,10 @@ class DevelopManager implements EditToolManager {
   }));
 
   async onActivate(asset: AssetResponseDto, edits: EditActions): Promise<void> {
-    // Try localStorage first (in-session edits), then server (persisted XMP/history)
-    const loaded = this.loadFromStorage(asset.id);
-    if (!loaded) {
-      await this.loadFromServer(asset.id);
+    // Try server first (authoritative saved state), fall back to localStorage (unsaved drafts)
+    const serverLoaded = await this.loadFromServer(asset.id);
+    if (!serverLoaded) {
+      this.loadFromStorage(asset.id);
     }
   }
 
