@@ -82,6 +82,12 @@ export interface ExportOptions {
   format?: 'jpeg' | 'png';
   /** JPEG quality (0-1, default 0.95) */
   quality?: number;
+  /** Resize mode */
+  resizeMode?: 'original' | 'longEdge' | 'megapixels';
+  /** Long edge target in pixels */
+  longEdge?: number;
+  /** Target megapixels */
+  megapixels?: number;
   /** Progress callback */
   onProgress?: (stage: string, percent: number) => void;
 }
@@ -271,11 +277,59 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
     ctx.drawImage(geoCanvas, 0, 0);
   }
 
+  // ── Stage 5.5: Resize if requested (Lanczos3 via pica) ──
+  let outputCanvas: HTMLCanvasElement = canvas;
+
+  const resizeMode = options.resizeMode ?? 'original';
+  if (resizeMode !== 'original') {
+    onProgress?.('Resizing (Lanczos3)...', 85);
+
+    const Pica = (await import('pica')).default;
+    const pica = new Pica();
+
+    let targetW: number, targetH: number;
+    const currentW = canvas.width;
+    const currentH = canvas.height;
+    const aspect = currentW / currentH;
+
+    if (resizeMode === 'longEdge') {
+      const edge = options.longEdge ?? 2048;
+      if (currentW >= currentH) {
+        targetW = Math.min(edge, currentW);
+        targetH = Math.round(targetW / aspect);
+      } else {
+        targetH = Math.min(edge, currentH);
+        targetW = Math.round(targetH * aspect);
+      }
+    } else {
+      // megapixels
+      const targetPixels = (options.megapixels ?? 2) * 1_000_000;
+      const currentPixels = currentW * currentH;
+      if (currentPixels <= targetPixels) {
+        targetW = currentW;
+        targetH = currentH;
+      } else {
+        const ratio = Math.sqrt(targetPixels / currentPixels);
+        targetW = Math.round(currentW * ratio);
+        targetH = Math.round(currentH * ratio);
+      }
+    }
+
+    // Only resize if actually shrinking
+    if (targetW < currentW || targetH < currentH) {
+      const resizedCanvas = document.createElement('canvas');
+      resizedCanvas.width = targetW;
+      resizedCanvas.height = targetH;
+      await pica.resize(canvas, resizedCanvas, { filter: 'lanczos3' });
+      outputCanvas = resizedCanvas;
+    }
+  }
+
   onProgress?.('Encoding...', 90);
 
   // ── Stage 6: Encode to Blob ──
   const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
+    outputCanvas.toBlob(
       (b) => {
         if (b) resolve(b);
         else reject(new Error('Canvas toBlob failed'));

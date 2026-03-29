@@ -7,6 +7,7 @@
   import { getAssetEdits, type AssetResponseDto } from '@immich/sdk';
   import { Button, HStack, IconButton, toastManager } from '@immich/ui';
   import { mdiClose, mdiExport } from '@mdi/js';
+  import ExportDialog from './export-dialog.svelte';
   import { onDestroy, onMount } from 'svelte';
   import { t } from 'svelte-i18n';
 
@@ -33,6 +34,7 @@
   });
 
   let isSaving = $state(false);
+  let showExportDialog = $state(false);
 
   // Sidecar API base URL (same host as Immich, different port)
   const SIDECAR_API = `${window.location.protocol}//${window.location.hostname}:3380`;
@@ -195,6 +197,15 @@
       <Button shape="round" size="small" onclick={applyEdits} loading={editManager.isApplyingEdits || isSaving}>
         {isSaving ? 'Saving...' : $t('save')}
       </Button>
+      {#if editManager.selectedTool?.type === EditToolType.Develop && developManager.hasChanges}
+        <IconButton
+          shape="round"
+          size="small"
+          icon={mdiExport}
+          title="Export edited copy"
+          onclick={() => (showExportDialog = true)}
+        />
+      {/if}
     </HStack>
   </HStack>
 
@@ -230,3 +241,7 @@
     </Button>
   </section>
 </section>
+
+{#if showExportDialog}
+  <ExportDialog {asset} onClose={() => (showExportDialog = false)} />
+{/if}
