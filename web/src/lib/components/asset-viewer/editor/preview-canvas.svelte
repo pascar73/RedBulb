@@ -183,15 +183,24 @@
       const img = cachedImg;
       
       // Set canvas size to image size (or max 2000px)
+      // ONLY resize if dimensions actually changed — setting canvas.width clears all content
       const scale = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
-      canvas.width = Math.round(img.naturalWidth * scale);
-      canvas.height = Math.round(img.naturalHeight * scale);
+      const newW = Math.round(img.naturalWidth * scale);
+      const newH = Math.round(img.naturalHeight * scale);
+      if (canvas.width !== newW || canvas.height !== newH) {
+        canvas.width = newW;
+        canvas.height = newH;
+      }
       
-      // Save original image data for eyedropper
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      origW = canvas.width;
-      origH = canvas.height;
+      // Save original image data for eyedropper (use temp canvas to avoid clearing visible one)
+      const origCanvas = document.createElement('canvas');
+      origCanvas.width = newW;
+      origCanvas.height = newH;
+      const origCtx = origCanvas.getContext('2d')!;
+      origCtx.drawImage(img, 0, 0, newW, newH);
+      originalImageData = origCtx.getImageData(0, 0, newW, newH);
+      origW = newW;
+      origH = newH;
 
       const p = developManager.params;
       const curves = developManager.curves;
