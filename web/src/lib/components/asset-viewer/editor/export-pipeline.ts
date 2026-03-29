@@ -120,13 +120,39 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
 
   onProgress?.(`Processing ${fullW}×${fullH}...`, 15);
 
-  // ── Stage 2: Extract raw sRGB pixels ──
+  // ── Stage 2: Resize FIRST if needed (before expensive worker processing) ──
+  // This dramatically speeds up export by running blur/NR on fewer pixels
+  const resizeMode = options.resizeMode ?? 'original';
+  let processW = fullW;
+  let processH = fullH;
+  const aspect = fullW / fullH;
+
+  if (resizeMode === 'longEdge') {
+    const edge = options.longEdge ?? 2048;
+    if (fullW >= fullH && edge < fullW) {
+      processW = edge;
+      processH = Math.round(edge / aspect);
+    } else if (edge < fullH) {
+      processH = edge;
+      processW = Math.round(edge * aspect);
+    }
+  } else if (resizeMode === 'megapixels') {
+    const targetPx = (options.megapixels ?? 2) * 1_000_000;
+    const currentPx = fullW * fullH;
+    if (targetPx < currentPx) {
+      const ratio = Math.sqrt(targetPx / currentPx);
+      processW = Math.round(fullW * ratio);
+      processH = Math.round(fullH * ratio);
+    }
+  }
+
+  // Draw (and optionally pre-resize) to canvas
   const canvas = document.createElement('canvas');
-  canvas.width = fullW;
-  canvas.height = fullH;
+  canvas.width = processW;
+  canvas.height = processH;
   const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(img, 0, 0, fullW, fullH);
-  const imageData = ctx.getImageData(0, 0, fullW, fullH);
+  ctx.drawImage(img, 0, 0, processW, processH);
+  const imageData = ctx.getImageData(0, 0, processW, processH);
 
   // ── Stage 3: Build curve LUTs ──
   const hasCurves = Object.values(curves).some(ch => ch.length > 0);
@@ -140,6 +166,46 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
 
   const hasHSL = Object.values(hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0);
   const hasColorGrading = Object.values(cw).some(w => w.hue !== 0 || w.sat !== 0 || w.lum !== 0);
+
+  // Check if ANY develop edits exist
+  const hasAnyEdits = p.exposure !== 0 || p.contrast !== 0 || p.highlights !== 0 || p.shadows !== 0
+    || p.whites !== 0 || p.blacks !== 0 || p.brightness !== 0 || p.saturation !== 0
+    || p.temperature !== 0 || p.tint !== 0 || p.vibrance !== 0 || p.texture !== 0
+    || p.sharpness !== 0 || p.noiseReduction !== 0 || p.clarity !== 0 || p.dehaze !== 0
+    || p.caCorrection !== 0 || p.toneMapper !== 'none' || p.vignette !== 0
+    || p.grain !== 0 || p.fade !== 0 || hasCurves || hasEndpoints || hasHSL || hasColorGrading;
+
+  // ── Fast path: no edits → skip expensive worker processing ──
+  if (!hasAnyEdits) {
+    onProgress?.('Encoding...', 80);
+
+    // Skip worker — go straight to geometry + output
+    const hasGeo = p.geoRotation !== 0 || p.geoDistortion !== 0
+      || p.geoVertical !== 0 || p.geoHorizontal !== 0 || p.geoScale !== 100;
+
+    if (hasGeo) {
+      applyGeometryToCanvas(ctx, canvas, processW, processH, p);
+    }
+
+    // Return pixels or encode
+    if (options.returnPixels) {
+      const outData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      onProgress?.('Done', 100);
+      const fakeBlob = new Blob([]) as any;
+      fakeBlob.__tungstenPixels = { pixels: outData.data, width: canvas.width, height: canvas.height };
+      return fakeBlob;
+    }
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (b) => { if (b) resolve(b); else reject(new Error('Canvas toBlob failed')); },
+        format === 'jpeg' ? 'image/jpeg' : 'image/png',
+        format === 'jpeg' ? quality : undefined,
+      );
+    });
+    onProgress?.('Done', 100);
+    return blob;
+  }
 
   onProgress?.('Rendering...', 25);
 
@@ -184,8 +250,8 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
     const request: ExportWorkerRequest = {
       type: 'export',
       pixels: pixelBuf,
-      width: fullW,
-      height: fullH,
+      width: processW,
+      height: processH,
       masterLUT: mBuf,
       redLUT: rBuf,
       greenLUT: gBuf,
@@ -237,95 +303,11 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
     || p.geoVertical !== 0 || p.geoHorizontal !== 0 || p.geoScale !== 100;
 
   if (hasGeo) {
-    const geoCanvas = document.createElement('canvas');
-    geoCanvas.width = fullW;
-    geoCanvas.height = fullH;
-    const geoCtx = geoCanvas.getContext('2d')!;
-
-    const cx = fullW / 2;
-    const cy = fullH / 2;
-    const scale = p.geoScale / 100;
-    const rotRad = (p.geoRotation * Math.PI) / 180;
-    const perspV = p.geoVertical * 0.003;
-    const perspH = p.geoHorizontal * 0.003;
-
-    geoCtx.save();
-    geoCtx.translate(cx, cy);
-    geoCtx.scale(scale, scale);
-
-    if (rotRad !== 0) {
-      geoCtx.rotate(rotRad);
-    }
-
-    if (perspV !== 0 || perspH !== 0) {
-      geoCtx.transform(
-        1 - Math.abs(perspH) * 0.1,
-        perspH * 0.5,
-        perspV * 0.5,
-        1 - Math.abs(perspV) * 0.1,
-        0, 0,
-      );
-    }
-
-    geoCtx.drawImage(canvas, -cx, -cy);
-    geoCtx.restore();
-
-    // Barrel/pincushion distortion (pixel-level inverse warp)
-    if (p.geoDistortion !== 0) {
-      applyBarrelDistortion(geoCtx, geoCanvas, fullW, fullH, p.geoDistortion);
-    }
-
-    ctx.clearRect(0, 0, fullW, fullH);
-    ctx.drawImage(geoCanvas, 0, 0);
+    applyGeometryToCanvas(ctx, canvas, processW, processH, p);
   }
 
-  // ── Stage 5.5: Resize if requested (Lanczos3 via pica) ──
-  let outputCanvas: HTMLCanvasElement = canvas;
-
-  const resizeMode = options.resizeMode ?? 'original';
-  if (resizeMode !== 'original') {
-    onProgress?.('Resizing (Lanczos3)...', 85);
-
-    const Pica = (await import('pica')).default;
-    const pica = new Pica();
-
-    let targetW: number, targetH: number;
-    const currentW = canvas.width;
-    const currentH = canvas.height;
-    const aspect = currentW / currentH;
-
-    if (resizeMode === 'longEdge') {
-      const edge = options.longEdge ?? 2048;
-      if (currentW >= currentH) {
-        targetW = Math.min(edge, currentW);
-        targetH = Math.round(targetW / aspect);
-      } else {
-        targetH = Math.min(edge, currentH);
-        targetW = Math.round(targetH * aspect);
-      }
-    } else {
-      // megapixels
-      const targetPixels = (options.megapixels ?? 2) * 1_000_000;
-      const currentPixels = currentW * currentH;
-      if (currentPixels <= targetPixels) {
-        targetW = currentW;
-        targetH = currentH;
-      } else {
-        const ratio = Math.sqrt(targetPixels / currentPixels);
-        targetW = Math.round(currentW * ratio);
-        targetH = Math.round(currentH * ratio);
-      }
-    }
-
-    // Only resize if actually shrinking
-    if (targetW < currentW || targetH < currentH) {
-      const resizedCanvas = document.createElement('canvas');
-      resizedCanvas.width = targetW;
-      resizedCanvas.height = targetH;
-      await pica.resize(canvas, resizedCanvas, { filter: 'lanczos3' });
-      outputCanvas = resizedCanvas;
-    }
-  }
+  // Resize was already done in Stage 2 (pre-worker), so no Lanczos pass needed
+  const outputCanvas: HTMLCanvasElement = canvas;
 
   onProgress?.('Encoding...', 90);
 
@@ -363,6 +345,50 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
 // ═══════════════════════════════════════════════════════════════
 // Helper functions
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * Apply geometry transforms (rotation, perspective, scale, barrel distortion) to canvas.
+ */
+function applyGeometryToCanvas(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  w: number,
+  h: number,
+  p: { geoRotation: number; geoDistortion: number; geoVertical: number; geoHorizontal: number; geoScale: number },
+): void {
+  const geoCanvas = document.createElement('canvas');
+  geoCanvas.width = w;
+  geoCanvas.height = h;
+  const geoCtx = geoCanvas.getContext('2d')!;
+
+  const cx = w / 2;
+  const cy = h / 2;
+  const scale = p.geoScale / 100;
+  const rotRad = (p.geoRotation * Math.PI) / 180;
+  const perspV = p.geoVertical * 0.003;
+  const perspH = p.geoHorizontal * 0.003;
+
+  geoCtx.save();
+  geoCtx.translate(cx, cy);
+  geoCtx.scale(scale, scale);
+  if (rotRad !== 0) geoCtx.rotate(rotRad);
+  if (perspV !== 0 || perspH !== 0) {
+    geoCtx.transform(
+      1 - Math.abs(perspH) * 0.1, perspH * 0.5,
+      perspV * 0.5, 1 - Math.abs(perspV) * 0.1,
+      0, 0,
+    );
+  }
+  geoCtx.drawImage(canvas, -cx, -cy);
+  geoCtx.restore();
+
+  if (p.geoDistortion !== 0) {
+    applyBarrelDistortion(geoCtx, geoCanvas, w, h, p.geoDistortion);
+  }
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(geoCanvas, 0, 0);
+}
 
 /**
  * Apply barrel/pincushion distortion via pixel remapping.
