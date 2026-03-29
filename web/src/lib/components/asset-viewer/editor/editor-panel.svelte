@@ -6,7 +6,7 @@
   import { websocketEvents } from '$lib/stores/websocket';
   import { getAssetEdits, type AssetResponseDto } from '@immich/sdk';
   import { Button, HStack, IconButton, toastManager } from '@immich/ui';
-  import { mdiClose } from '@mdi/js';
+  import { mdiClose, mdiExport } from '@mdi/js';
   import { onDestroy, onMount } from 'svelte';
   import { t } from 'svelte-i18n';
 
@@ -32,18 +32,136 @@
     editManager.cleanup();
   });
 
+  let isSaving = $state(false);
+
+  // Sidecar API base URL (same host as Immich, different port)
+  const SIDECAR_API = `${window.location.protocol}//${window.location.hostname}:3380`;
+
   async function applyEdits() {
-    // Prevent server save when only Develop changes exist (no server-side support yet)
+    // If develop changes exist, save XMP sidecar (non-destructive, like Lightroom)
     if (developManager.hasChanges) {
-      toastManager.info('Develop adjustments are preview-only. Client-side export coming in Sprint 5.');
+      await saveDevelopXMP();
       return;
     }
 
+    // Otherwise, use standard Immich server-side edit (crop/rotate/mirror)
     const success = await editManager.applyEdits();
 
     if (success) {
       onClose();
     }
+  }
+
+  /**
+   * Save develop edits as XMP sidecar next to the original file.
+   * Non-destructive — the original is never modified.
+   * XMP is written at {originalPath}.xmp via the sidecar API.
+   */
+  async function saveDevelopXMP() {
+    if (isSaving) return;
+    isSaving = true;
+
+    try {
+      // Generate XMP content (reuse the function from develop-tool)
+      const xmp = generateXMPFromManager();
+
+      // Save XMP via sidecar API
+      const response = await fetch(`${SIDECAR_API}/api/assets/${asset.id}/xmp`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ xmp }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(err.error || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('XMP saved:', result.path);
+
+      // Also save to version history
+      try {
+        await fetch(`${SIDECAR_API}/api/assets/${asset.id}/develop-history`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            state: developManager.serialize(),
+            label: 'Saved',
+            isAutoCheckpoint: false,
+          }),
+        });
+      } catch {
+        // Non-fatal — XMP is the primary save
+      }
+
+      toastManager.success('Edits saved (XMP sidecar)');
+    } catch (error) {
+      console.error('XMP save failed:', error);
+      toastManager.danger(`Save failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      isSaving = false;
+    }
+  }
+
+  /**
+   * Generate XMP content from current develop manager state.
+   * Mirrors the generateXMP() function in develop-tool.svelte.
+   */
+  function generateXMPFromManager(): string {
+    const state = developManager.serialize() as any;
+    const b = state.basic || {};
+    const c = state.color || {};
+    const d = state.details || {};
+    const e = state.effects || {};
+    const g = state.geometry || {};
+
+    return `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      xmlns:rb="http://redbulb.app/ns/1.0/"
+      crs:Version="16.0"
+      crs:ProcessVersion="15.4"
+      crs:Exposure2012="${(b.exposure ?? 0).toFixed(2)}"
+      crs:Contrast2012="${Math.round((b.contrast ?? 0) * 100)}"
+      crs:Highlights2012="${Math.round((b.highlights ?? 0) * 100)}"
+      crs:Shadows2012="${Math.round((b.shadows ?? 0) * 100)}"
+      crs:Whites2012="${Math.round((b.whites ?? 0) * 100)}"
+      crs:Blacks2012="${Math.round((b.blacks ?? 0) * 100)}"
+      crs:Brightness="${Math.round((b.brightness ?? 0) * 100)}"
+      crs:Temperature="${Math.round((c.temperature ?? 0) * 100)}"
+      crs:Tint="${Math.round((c.tint ?? 0) * 100)}"
+      crs:Vibrance="${Math.round((c.vibrance ?? 0) * 100)}"
+      crs:Saturation="${Math.round((c.saturation ?? 0) * 100)}"
+      crs:Clarity2012="${Math.round((d.clarity ?? 0) * 100)}"
+      crs:Dehaze="${Math.round((d.dehaze ?? 0) * 100)}"
+      crs:Sharpness="${Math.round((d.sharpness ?? 0) * 100)}"
+      crs:LuminanceSmoothing="${Math.round((d.noiseReduction ?? 0) * 100)}"
+      crs:PostCropVignetteAmount="${Math.round((e.vignette ?? 0) * 100)}"
+      crs:PostCropVignetteMidpoint="${e.vignetteMidpoint ?? 50}"
+      crs:PostCropVignetteFeather="${e.vignetteFeather ?? 50}"
+      crs:PostCropVignetteRoundness="${e.vignetteRoundness ?? 0}"
+      crs:PostCropVignetteHighlightRecovery="${e.vignetteHighlights ?? 0}"
+      crs:GrainAmount="${Math.round((e.grain ?? 0) * 100)}"
+      crs:GrainSize="${e.grainSize ?? 25}"
+      crs:GrainFrequency="${e.grainRoughness ?? 50}"
+      rb:ToneMapper="${state.toneMapper ?? 'none'}"
+      rb:Texture="${Math.round((e.texture ?? 0) * 100)}"
+      rb:Fade="${Math.round((e.fade ?? 0) * 100)}"
+      rb:ChromaticAberration="${Math.round((d.caCorrection ?? 0) * 100)}"
+      rb:GeoRotation="${(g.rotation ?? 0).toFixed(1)}"
+      rb:GeoDistortion="${g.distortion ?? 0}"
+      rb:GeoVertical="${g.vertical ?? 0}"
+      rb:GeoHorizontal="${g.horizontal ?? 0}"
+      rb:GeoScale="${g.scale ?? 100}"
+      rb:DevelopState="${encodeURIComponent(JSON.stringify(state))}"
+    >
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`;
   }
 
   async function closeEditor() {
@@ -74,7 +192,9 @@
       {#if editManager.selectedTool?.type === EditToolType.Develop}
         <ZoomControl />
       {/if}
-      <Button shape="round" size="small" onclick={applyEdits} loading={editManager.isApplyingEdits}>{$t('save')}</Button>
+      <Button shape="round" size="small" onclick={applyEdits} loading={editManager.isApplyingEdits || isSaving}>
+        {isSaving ? 'Saving...' : $t('save')}
+      </Button>
     </HStack>
   </HStack>
 
