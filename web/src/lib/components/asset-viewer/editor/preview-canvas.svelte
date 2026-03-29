@@ -376,18 +376,20 @@
   });
 </script>
 
-<!-- Wrapper follows the same zoom transform as the <img> element -->
-<div class="absolute inset-0 w-full h-full pointer-events-none overflow-hidden" style={zoomTransform}>
-  <canvas
-    bind:this={canvas}
-    class="absolute inset-0 w-full h-full object-contain"
-    class:pointer-events-auto={developManager.eyedropperActive}
-    class:cursor-crosshair={developManager.eyedropperActive}
-    style:display={developManager.hasChanges || developManager.eyedropperActive ? 'block' : 'none'}
-    style:transform={geoTransform || undefined}
-    style:transform-origin="center center"
-    onclick={handleEyedropperClick}
-  ></canvas>
+<!-- Clip boundary — must NOT have a CSS transform for overflow clipping to work -->
+<div class="absolute inset-0 w-full h-full pointer-events-none overflow-hidden">
+  <!-- Zoom wrapper — mirrors the <img> zoom transform -->
+  <div class="absolute inset-0 w-full h-full" style={zoomTransform}>
+    <canvas
+      bind:this={canvas}
+      class="absolute inset-0 w-full h-full object-contain"
+      class:pointer-events-auto={developManager.eyedropperActive}
+      class:cursor-crosshair={developManager.eyedropperActive}
+      style:display={developManager.hasChanges || developManager.eyedropperActive ? 'block' : 'none'}
+      style:transform={geoTransform || undefined}
+      style:transform-origin="center center"
+      onclick={handleEyedropperClick}
+    ></canvas>
 
   <!-- Vignette overlay (CSS radial-gradient, GPU-accelerated) -->
   {#if developManager.vignette !== 0}
@@ -418,4 +420,5 @@
       Processing...
     </div>
   {/if}
-</div>
+  </div><!-- /zoom wrapper -->
+</div><!-- /clip boundary -->
