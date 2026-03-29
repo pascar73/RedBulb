@@ -2,6 +2,11 @@ import { type EditActions, type EditToolManager } from '$lib/managers/edit/edit-
 import type { AssetResponseDto } from '@immich/sdk';
 
 class DevelopManager implements EditToolManager {
+  // Current asset ID for auto-save
+  private _currentAssetId = $state('');
+  private _autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private _isLoading = false; // suppress auto-save during load
+
   // Basic adjustment parameters
   exposure = $state(0);
   contrast = $state(0);
@@ -160,6 +165,18 @@ class DevelopManager implements EditToolManager {
   edits = $derived.by(() => this.getEdits());
 
   // Reactive object for WebGPU rendering
+  // Auto-save trigger: watches all reactive state via serialize()
+  // Uses $effect.pre in a constructor won't work in class — we use a derived + side effect approach
+  private _lastSerializedJson = $derived.by(() => {
+    // Access all reactive properties to establish dependencies
+    const json = JSON.stringify(this.serialize());
+    // Schedule auto-save as a side effect (only if not loading)
+    if (!this._isLoading && this._currentAssetId) {
+      this.scheduleAutoSave();
+    }
+    return json;
+  });
+
   params = $derived.by(() => ({
     exposure: this.exposure,
     contrast: this.contrast,
@@ -200,15 +217,116 @@ class DevelopManager implements EditToolManager {
   }));
 
   async onActivate(asset: AssetResponseDto, edits: EditActions): Promise<void> {
+    this._isLoading = true;
+    this._currentAssetId = asset.id;
     // Try server first (authoritative saved state), fall back to localStorage (unsaved drafts)
     const serverLoaded = await this.loadFromServer(asset.id);
     if (!serverLoaded) {
       this.loadFromStorage(asset.id);
     }
+    // Small delay to let Svelte finish updating derived state before enabling auto-save
+    setTimeout(() => { this._isLoading = false; }, 100);
   }
 
   onDeactivate(): void {
-    // No special deactivation needed
+    // Flush any pending auto-save
+    if (this._autoSaveTimer) {
+      clearTimeout(this._autoSaveTimer);
+      this._autoSaveTimer = null;
+    }
+    if (this._currentAssetId && this.hasChanges) {
+      this._performSave(this._currentAssetId);
+    }
+  }
+
+  /** Debounced auto-save — called on every parameter change */
+  scheduleAutoSave(): void {
+    if (this._isLoading || !this._currentAssetId) return;
+    if (this._autoSaveTimer) clearTimeout(this._autoSaveTimer);
+    this._autoSaveTimer = setTimeout(() => {
+      this._autoSaveTimer = null;
+      this._performSave(this._currentAssetId);
+    }, 800); // 800ms debounce — fast enough to feel instant, slow enough to batch slider drags
+  }
+
+  /** Save to localStorage + server (XMP + history) */
+  private async _performSave(assetId: string): Promise<void> {
+    if (!assetId) return;
+
+    // Always save to localStorage (instant restore)
+    this.saveToStorage(assetId);
+
+    // Save to server (XMP sidecar + version history)
+    const baseUrl = `${window.location.protocol}//${window.location.hostname}:3380`;
+
+    try {
+      // Save XMP sidecar
+      const xmp = this._generateXMP();
+      await fetch(`${baseUrl}/api/assets/${assetId}/xmp`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ xmp }),
+      });
+
+      // Save to version history (auto-checkpoint)
+      await fetch(`${baseUrl}/api/assets/${assetId}/develop-history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          state: this.serialize(),
+          label: '',
+          isAutoCheckpoint: true,
+        }),
+      });
+    } catch {
+      // Silent fail — localStorage has the data, server save is best-effort
+    }
+  }
+
+  /** Generate XMP content from current state */
+  private _generateXMP(): string {
+    const state = this.serialize() as any;
+    const b = state.basic || {};
+    const c = state.color || {};
+    const d = state.details || {};
+    const e = state.effects || {};
+    const g = state.geometry || {};
+
+    return `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      xmlns:rb="http://redbulb.app/ns/1.0/"
+      crs:Version="16.0"
+      crs:ProcessVersion="15.4"
+      crs:Exposure2012="${(b.exposure ?? 0).toFixed(2)}"
+      crs:Contrast2012="${Math.round((b.contrast ?? 0) * 100)}"
+      crs:Highlights2012="${Math.round((b.highlights ?? 0) * 100)}"
+      crs:Shadows2012="${Math.round((b.shadows ?? 0) * 100)}"
+      crs:Whites2012="${Math.round((b.whites ?? 0) * 100)}"
+      crs:Blacks2012="${Math.round((b.blacks ?? 0) * 100)}"
+      crs:Temperature="${Math.round((c.temperature ?? 0) * 100)}"
+      crs:Tint="${Math.round((c.tint ?? 0) * 100)}"
+      crs:Vibrance="${Math.round((c.vibrance ?? 0) * 100)}"
+      crs:Saturation="${Math.round((c.saturation ?? 0) * 100)}"
+      crs:Clarity2012="${Math.round((d.clarity ?? 0) * 100)}"
+      crs:Dehaze="${Math.round((d.dehaze ?? 0) * 100)}"
+      crs:Sharpness="${Math.round((d.sharpness ?? 0) * 100)}"
+      crs:LuminanceSmoothing="${Math.round((d.noiseReduction ?? 0) * 100)}"
+      crs:GrainAmount="${Math.round((e.grain ?? 0) * 100)}"
+      rb:ToneMapper="${state.toneMapper ?? 'none'}"
+      rb:GeoRotation="${(g.rotation ?? 0).toFixed(1)}"
+      rb:GeoDistortion="${g.distortion ?? 0}"
+      rb:GeoVertical="${g.vertical ?? 0}"
+      rb:GeoHorizontal="${g.horizontal ?? 0}"
+      rb:GeoScale="${g.scale ?? 100}"
+      rb:DevelopState="${encodeURIComponent(JSON.stringify(state))}"
+    >
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`;
   }
 
   async resetAllChanges(): Promise<void> {
