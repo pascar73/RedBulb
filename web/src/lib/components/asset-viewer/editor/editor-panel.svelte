@@ -3,10 +3,11 @@
   import { editManager, EditToolType } from '$lib/managers/edit/edit-manager.svelte';
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
   import ZoomControl from './develop-tool/zoom-control.svelte';
+  import InfoPanel from './info-panel.svelte';
   import { websocketEvents } from '$lib/stores/websocket';
   import { getAssetEdits, type AssetResponseDto } from '@immich/sdk';
   import { Button, HStack, IconButton, toastManager } from '@immich/ui';
-  import { mdiClose, mdiExport } from '@mdi/js';
+  import { mdiClose, mdiExport, mdiInformationOutline } from '@mdi/js';
   import ExportDialog from './export-dialog.svelte';
   import { onDestroy, onMount } from 'svelte';
   import { t } from 'svelte-i18n';
@@ -34,6 +35,7 @@
   });
 
   let showExportDialog = $state(false);
+  let showInfoTab = $state(false);
 
   async function applyEdits() {
     // For non-develop tools (Transform), use standard Immich server-side edit
@@ -96,16 +98,28 @@
     {#each editManager.tools as tool}
       <IconButton
         shape="round"
-        variant={editManager.selectedTool?.type === tool.type ? 'filled' : 'outline'}
-        color={editManager.selectedTool?.type === tool.type ? 'primary' : 'secondary'}
+        variant={!showInfoTab && editManager.selectedTool?.type === tool.type ? 'filled' : 'outline'}
+        color={!showInfoTab && editManager.selectedTool?.type === tool.type ? 'primary' : 'secondary'}
         icon={tool.icon}
-        onclick={() => editManager.activateTool(tool.type, asset, { edits: [] })}
+        onclick={() => { showInfoTab = false; editManager.activateTool(tool.type, asset, { edits: [] }); }}
       />
     {/each}
+    <div class="ml-auto">
+      <IconButton
+        shape="round"
+        variant={showInfoTab ? 'filled' : 'outline'}
+        color={showInfoTab ? 'primary' : 'secondary'}
+        icon={mdiInformationOutline}
+        onclick={() => (showInfoTab = !showInfoTab)}
+        title="File & EXIF Info"
+      />
+    </div>
   </HStack>
 
   <section>
-    {#if editManager.selectedTool}
+    {#if showInfoTab}
+      <InfoPanel {asset} />
+    {:else if editManager.selectedTool}
       <editManager.selectedTool.component />
     {/if}
   </section>
