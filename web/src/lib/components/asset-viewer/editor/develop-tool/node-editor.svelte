@@ -28,27 +28,36 @@
     return () => ro.disconnect();
   });
 
-  // ── Canvas size (derived from node positions + padding) ──
-  // Fix Issue #1: Account for nodes with x < 0 (left edge)
-  const canvasW = $derived.by(() => {
-    let minX = 0;
-    let maxX = 0;
-    for (const node of nodes) {
-      minX = Math.min(minX, node.position.x);
-      maxX = Math.max(maxX, node.position.x + NODE_W);
+  // ── Patch 1: World bounds (accounts for negative coords + padding) ──
+  const PAD_L = 40;
+  const PAD_R = 80;
+  const PAD_T = 32;
+  const PAD_B = 40;
+
+  const worldBounds = $derived.by(() => {
+    if (nodes.length === 0) {
+      return { minX: 0, minY: 0, maxX: 400, maxY: 180 };
     }
-    return Math.max(400, maxX - minX + SIDE_PAD * 2);
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < nodes.length; i++) {
+      const p = nodes[i].position;
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + NODE_W);
+      maxY = Math.max(maxY, p.y + NODE_H);
+    }
+
+    return {
+      minX: minX - PAD_L,
+      minY: minY - PAD_T,
+      maxX: maxX + PAD_R,
+      maxY: maxY + PAD_B,
+    };
   });
 
-  const canvasH = $derived.by(() => {
-    let minY = 0;
-    let maxY = 0;
-    for (const node of nodes) {
-      minY = Math.min(minY, node.position.y);
-      maxY = Math.max(maxY, node.position.y + NODE_H);
-    }
-    return Math.max(180, maxY - minY + TOP_PAD + BOTTOM_PAD);
-  });
+  const canvasW = $derived(Math.max(400, worldBounds.maxX - worldBounds.minX));
+  const canvasH = $derived(Math.max(180, worldBounds.maxY - worldBounds.minY));
 
   // ── Zoom & Pan ──
   let userZoom = $state<number | null>(null);
@@ -68,6 +77,15 @@
   const autoTY = $derived((viewportH - canvasH * fitZoom) / 2);
   const translateX = $derived(isAutoFit ? autoTX : panX);
   const translateY = $derived(isAutoFit ? autoTY : panY);
+
+  // ── Patch 2: Canonical coordinate transform functions ──
+  function worldToScreen(wx: number, wy: number) {
+    return { x: wx * zoom + translateX, y: wy * zoom + translateY };
+  }
+
+  function screenToWorld(sx: number, sy: number) {
+    return { x: (sx - translateX) / zoom, y: (sy - translateY) / zoom };
+  }
 
   $effect(() => { onDimensionsChange?.(canvasW, canvasH); });
 
@@ -102,25 +120,12 @@
 
   function resetToFit() { userZoom = null; panX = 0; panY = 0; }
 
-  // ── I/O terminals (Fix Issue #2: convert viewport coords to canvas coords) ──
-  // IN/OUT overlay is at viewport coords, but wires need canvas coords
-  // Convert: canvasCoord = (viewportCoord - translate) / zoom
-  
-  const terminals = $derived.by(() => {
-    // IN overlay position (viewport): (16, viewportH/2)
-    const inputCanvasX = (16 - translateX) / zoom;
-    const inputCanvasY = (viewportH / 2 - translateY) / zoom;
-    
-    // OUT overlay position (viewport): (viewportW - 16, viewportH/2)
-    const outputCanvasX = (viewportW - 16 - translateX) / zoom;
-    const outputCanvasY = (viewportH / 2 - translateY) / zoom;
-    
-    return {
-      input: { x: inputCanvasX, y: inputCanvasY },
-      output: { x: outputCanvasX, y: outputCanvasY },
-    };
+  // ── Patch 2: Terminal definition (screen space, viewport-anchored) ──
+  const terminalScreen = $derived({
+    in: { x: 16, y: viewportH / 2 },
+    out: { x: viewportW - 16, y: viewportH / 2 },
   });
-  
+
   // Viewport middle Y for IN/OUT overlay
   const viewportMidY = $derived(viewportH / 2);
 
@@ -138,6 +143,10 @@
     const result: { d: string; active: boolean }[] = [];
     if (nodes.length === 0 || connections.length === 0) return result;
 
+    // Patch 2: Convert terminals from screen to world space
+    const inW = screenToWorld(terminalScreen.in.x, terminalScreen.in.y);
+    const outW = screenToWorld(terminalScreen.out.x, terminalScreen.out.y);
+
     // Build node lookup map
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
@@ -148,8 +157,8 @@
 
       // Determine start point
       if (conn.from === "input") {
-        x1 = terminals.input.x;
-        y1 = terminals.input.y;
+        x1 = inW.x;
+        y1 = inW.y;
       } else {
         const fromNode = nodeMap.get(conn.from);
         if (!fromNode) continue; // Skip if node not found
@@ -160,8 +169,8 @@
 
       // Determine end point
       if (conn.to === "output") {
-        x2 = terminals.output.x;
-        y2 = terminals.output.y;
+        x2 = outW.x;
+        y2 = outW.y;
       } else {
         const toNode = nodeMap.get(conn.to);
         if (!toNode) continue; // Skip if node not found
@@ -366,10 +375,11 @@
   </svg>
 
   <!-- SVG canvas (zoomable/pannable) -->
+  <!-- Patch 1: ViewBox starts at worldBounds origin to prevent clipping -->
   <svg
     width={canvasW}
     height={canvasH}
-    viewBox="0 0 {canvasW} {canvasH}"
+    viewBox="{worldBounds.minX} {worldBounds.minY} {canvasW} {canvasH}"
     style="transform: translate({translateX}px, {translateY}px) scale({zoom}); transform-origin: 0 0;"
     class="node-svg"
   >

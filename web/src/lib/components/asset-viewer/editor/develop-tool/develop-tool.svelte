@@ -432,6 +432,7 @@
       contentWidth={graphContentW}
       contentHeight={graphContentH}
       currentZoom={nodeEditorZoom}
+      nodeCount={developManager.nodes.length}
     >
       <NodeEditor
         onDimensionsChange={handleDimensionsChange}

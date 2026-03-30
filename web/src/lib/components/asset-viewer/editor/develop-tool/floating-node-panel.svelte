@@ -9,9 +9,11 @@
     contentHeight: number;
     /** Current zoom level reported by node-editor */
     currentZoom?: number;
+    /** Patch 4: Actual node count (not estimated from pixel width) */
+    nodeCount?: number;
   }
 
-  let { title, onClose, children, contentWidth, contentHeight, currentZoom = 1 }: Props = $props();
+  let { title, onClose, children, contentWidth, contentHeight, currentZoom = 1, nodeCount = 0 }: Props = $props();
 
   // Panel position & size — fully unconstrained
   let panelX = $state(60);
@@ -117,7 +119,7 @@
     resizing = null;
   }
 
-  const nodeCount = $derived(contentWidth > 0 ? Math.round(contentWidth / 106) : 0);
+  // Patch 4: nodeCount is now a prop (passed from parent)
 </script>
 
 <svelte:window onmousemove={onMove} onmouseup={onUp} ontouchmove={onMoveTouch} ontouchend={onUp} />
@@ -167,7 +169,7 @@
       <input type="range" min="0.2" max="1" step="0.01" bind:value={opacity} class="opacity-slider" />
       <span class="footer-value">{Math.round(opacity * 100)}%</span>
     </div>
-    <div class="node-count">{nodeCount} nodes</div>
+    <div class="node-count">{nodeCount} node{nodeCount !== 1 ? 's' : ''}</div>
   </div>
 </div>
 
