@@ -123,6 +123,11 @@ export const NODE_H = 88;
 export const NODE_GAP = 24;
 export const IO_R = 7;
 
+// Canvas padding (prevent nodes clipping under panel chrome)
+export const TOP_PAD = 40;
+export const BOTTOM_PAD = 24;
+export const SIDE_PAD = 24;
+
 export function createEmptyDevelopState(): DevelopState {
   return {
     version: 1,

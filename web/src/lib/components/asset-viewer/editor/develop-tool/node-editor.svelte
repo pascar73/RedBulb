@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { type CorrectorNode, hasActiveChanges, NODE_W, NODE_H, NODE_GAP, IO_R, MAX_NODES } from '../node-types';
+  import { type CorrectorNode, hasActiveChanges, NODE_W, NODE_H, NODE_GAP, IO_R, MAX_NODES, TOP_PAD, BOTTOM_PAD, SIDE_PAD } from '../node-types';
   import { developManager } from '$lib/managers/edit/develop-manager.svelte';
 
   interface Props {
@@ -28,13 +28,13 @@
     return () => ro.disconnect();
   });
 
-  // ── Canvas size (derived from node positions) ──
+  // ── Canvas size (derived from node positions + padding) ──
   const canvasW = $derived.by(() => {
     let maxX = 0;
     for (const node of nodes) {
       maxX = Math.max(maxX, node.position.x + NODE_W);
     }
-    return Math.max(400, maxX + 80);
+    return Math.max(400, maxX + SIDE_PAD * 2);
   });
 
   const canvasH = $derived.by(() => {
@@ -42,7 +42,7 @@
     for (const node of nodes) {
       maxY = Math.max(maxY, node.position.y + NODE_H);
     }
-    return Math.max(180, maxY + 40);
+    return Math.max(180, maxY + TOP_PAD + BOTTOM_PAD);
   });
 
   // ── Zoom & Pan ──
@@ -97,20 +97,13 @@
 
   function resetToFit() { userZoom = null; panX = 0; panY = 0; }
 
-  // ── I/O wire endpoints (convert from viewport space to canvas space) ──
-  // IN/OUT are at viewport edges (16px from edge, 50% height)
-  // We need to convert these to canvas coordinates for wire rendering
-  const inputCanvasX = $derived.by(() => {
-    // Viewport coord (16, viewportH/2) → canvas coord
-    return (16 - translateX) / zoom;
-  });
-  const outputCanvasX = $derived.by(() => {
-    // Viewport coord (viewportW - 16, viewportH/2) → canvas coord
-    return (viewportW - 16 - translateX) / zoom;
-  });
-  const ioCanvasY = $derived.by(() => {
-    // Viewport Y (viewportH/2) → canvas Y
-    return (viewportH / 2 - translateY) / zoom;
+  // ── I/O terminals (Fix A: stable lane, Fix D: explicit positions) ──
+  // IN/OUT at fixed Y lane (canvasH midpoint), not derived from node positions
+  const ioLaneY = $derived(canvasH / 2);
+  
+  const terminals = $derived({
+    input: { x: SIDE_PAD, y: ioLaneY },
+    output: { x: canvasW - SIDE_PAD, y: ioLaneY },
   });
   
   // Viewport middle Y for IN/OUT overlay
@@ -140,8 +133,8 @@
 
       // Determine start point
       if (conn.from === "input") {
-        x1 = inputCanvasX;
-        y1 = ioCanvasY;
+        x1 = terminals.input.x;
+        y1 = terminals.input.y;
       } else {
         const fromNode = nodeMap.get(conn.from);
         if (!fromNode) continue; // Skip if node not found
@@ -152,8 +145,8 @@
 
       // Determine end point
       if (conn.to === "output") {
-        x2 = outputCanvasX;
-        y2 = ioCanvasY;
+        x2 = terminals.output.x;
+        y2 = terminals.output.y;
       } else {
         const toNode = nodeMap.get(conn.to);
         if (!toNode) continue; // Skip if node not found
@@ -199,9 +192,9 @@
       const dx = (ev.clientX - dragStartMouse.x) / zoom;
       const dy = (ev.clientY - dragStartMouse.y) / zoom;
       
-      // Update position directly on node
-      draggingNode.position.x = Math.max(-100, Math.min(3000, dragStartPos.x + dx));
-      draggingNode.position.y = Math.max(-50, Math.min(1500, dragStartPos.y + dy));
+      // Update position directly on node (Fix C: clamp with TOP_PAD)
+      draggingNode.position.x = Math.max(SIDE_PAD, Math.min(3000, dragStartPos.x + dx));
+      draggingNode.position.y = Math.max(TOP_PAD, Math.min(1500, dragStartPos.y + dy));
     };
 
     const onUp = (ev: MouseEvent) => {
@@ -214,12 +207,12 @@
         // Drag completed → commit position with validation
         const draggedNode = nodes.find(n => n.id === draggingNodeId);
         if (draggedNode) {
-          // Validate and clamp coordinates (prevent NaN/Infinity, enforce bounds)
+          // Validate and clamp coordinates (prevent NaN/Infinity, enforce bounds with padding)
           const x = Number.isFinite(draggedNode.position.x) 
-            ? Math.max(-100, Math.min(3000, draggedNode.position.x))
+            ? Math.max(SIDE_PAD, Math.min(3000, draggedNode.position.x))
             : dragStartPos.x;
           const y = Number.isFinite(draggedNode.position.y)
-            ? Math.max(-50, Math.min(1500, draggedNode.position.y))
+            ? Math.max(TOP_PAD, Math.min(1500, draggedNode.position.y))
             : dragStartPos.y;
           
           // Commit final position (single authoritative write)

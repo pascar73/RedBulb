@@ -6,7 +6,7 @@ import {
   resetNodeCounter, migrateV1toV2, mergeNodes, hasActiveChanges,
   buildSerialConnections, insertNodeAfter, appendNode, removeNodeConnections,
   hasCycle,
-  MAX_NODES, NODE_W, NODE_GAP,
+  MAX_NODES, NODE_W, NODE_GAP, TOP_PAD, SIDE_PAD,
 } from '$lib/components/asset-viewer/editor/node-types';
 import { redBulbFetch } from '$lib/utils/redbulb-api';
 import { toastManager } from '@immich/ui';
@@ -491,8 +491,8 @@ class DevelopManager implements EditToolManager {
         y: afterNode.position.y,
       };
     } else {
-      // First node
-      newNode.position = { x: 80, y: 60 };
+      // First node (use padding constants)
+      newNode.position = { x: SIDE_PAD * 3, y: TOP_PAD + 20 };
     }
 
     // Add to nodes array
