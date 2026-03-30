@@ -243,6 +243,71 @@
       editingLabel = null;
     }
   }
+
+  // ── Contextual menu (press-hold on connectors) ──
+  let contextMenu = $state<{ x: number; y: number; afterNodeId: string } | null>(null);
+  let pressHoldTimer: number | null = null;
+  let pressHoldStart = { x: 0, y: 0 };
+
+  function handleConnectorMouseDown(nodeId: string, side: 'input' | 'output', e: MouseEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    pressHoldStart = { x: e.clientX, y: e.clientY };
+    
+    pressHoldTimer = window.setTimeout(() => {
+      // Show menu after 400ms hold
+      contextMenu = {
+        x: e.clientX,
+        y: e.clientY,
+        afterNodeId: side === 'output' ? nodeId : '', // empty = insert at start
+      };
+    }, 400);
+
+    const onMove = (ev: MouseEvent) => {
+      const dist = Math.abs(ev.clientX - pressHoldStart.x) + Math.abs(ev.clientY - pressHoldStart.y);
+      if (dist > 5 && pressHoldTimer) {
+        window.clearTimeout(pressHoldTimer);
+        pressHoldTimer = null;
+      }
+    };
+
+    const onUp = () => {
+      if (pressHoldTimer) {
+        window.clearTimeout(pressHoldTimer);
+        pressHoldTimer = null;
+      }
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  function addSerialNode() {
+    if (!contextMenu) return;
+    const afterId = contextMenu.afterNodeId;
+    
+    // Create new node
+    developManager.addNode();
+    
+    // If afterId specified, position it after that node
+    if (afterId) {
+      const afterIdx = nodes.findIndex(n => n.id === afterId);
+      if (afterIdx >= 0) {
+        const afterPos = getNodePos(afterId, afterIdx);
+        const newNode = nodes[nodes.length - 1];
+        setNodePos(newNode.id, afterPos.x + NODE_W + NODE_GAP, afterPos.y);
+      }
+    }
+    
+    contextMenu = null;
+  }
+
+  function closeContextMenu() {
+    contextMenu = null;
+  }
 </script>
 
 <div class="node-editor-canvas" bind:this={canvasEl}
@@ -255,7 +320,6 @@
   <div class="zoom-controls">
     <button onclick={resetToFit} title="Fit">Fit</button>
     <span class="zoom-pct">{Math.round(zoom * 100)}%</span>
-    <button onclick={handleAddNode} title="Add Node" disabled={nodes.length >= MAX_NODES}>+</button>
   </div>
 
   <!-- IN connector (viewport-fixed, left side, 50% height) -->
@@ -369,11 +433,55 @@
         {/if}
 
         <!-- I/O connectors on node -->
-        <circle cx={nx} cy={ny + NODE_H / 2} r={IO_R} fill="#333" stroke={isSelected ? '#60a5fa' : '#888'} stroke-width="1.5" />
-        <circle cx={nx + NODE_W} cy={ny + NODE_H / 2} r={IO_R} fill="#333" stroke={isSelected ? '#60a5fa' : '#888'} stroke-width="1.5" />
+        <circle 
+          cx={nx} cy={ny + NODE_H / 2} r={IO_R} 
+          fill="#333" stroke={isSelected ? '#60a5fa' : '#888'} stroke-width="1.5"
+          style="cursor: context-menu;"
+          onmousedown={(e) => handleConnectorMouseDown(node.id, 'input', e)}
+        />
+        <circle 
+          cx={nx + NODE_W} cy={ny + NODE_H / 2} r={IO_R} 
+          fill="#333" stroke={isSelected ? '#60a5fa' : '#888'} stroke-width="1.5"
+          style="cursor: context-menu;"
+          onmousedown={(e) => handleConnectorMouseDown(node.id, 'output', e)}
+        />
       </g>
     {/each}
   </svg>
+
+  <!-- Contextual menu -->
+  {#if contextMenu}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="context-menu-overlay" onclick={closeContextMenu}>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div 
+        class="context-menu"
+        style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
+        onclick={(e) => e.stopPropagation()}
+      >
+        <button 
+          class="context-menu-item" 
+          onclick={addSerialNode}
+          disabled={nodes.length >= MAX_NODES}
+        >
+          <span class="menu-icon">➜</span>
+          Add Serial Node
+        </button>
+        <button class="context-menu-item" disabled>
+          <span class="menu-icon">⫴</span>
+          Add Parallel Node
+          <span class="menu-badge">Soon</span>
+        </button>
+        <button class="context-menu-item" disabled>
+          <span class="menu-icon">⧉</span>
+          Add Layer Node
+          <span class="menu-badge">Soon</span>
+        </button>
+      </div>
+    </div>
+  {/if}
 
   <!-- Node count -->
   <div class="node-count">{nodes.length} node{nodes.length !== 1 ? 's' : ''}</div>
@@ -476,5 +584,65 @@
     padding: 2px 4px;
     border-radius: 4px;
     outline: none;
+  }
+
+  /* Contextual menu */
+  .context-menu-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+    background: transparent;
+  }
+
+  .context-menu {
+    position: fixed;
+    background: #2a2a3e;
+    border: 1px solid #444;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    padding: 4px;
+    min-width: 180px;
+    z-index: 101;
+  }
+
+  .context-menu-item {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: #ccc;
+    padding: 8px 12px;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.15s;
+  }
+
+  .context-menu-item:hover:not(:disabled) {
+    background: rgba(96, 165, 250, 0.15);
+    color: #fff;
+  }
+
+  .context-menu-item:disabled {
+    color: #555;
+    cursor: not-allowed;
+  }
+
+  .menu-icon {
+    font-size: 14px;
+    opacity: 0.7;
+  }
+
+  .menu-badge {
+    margin-left: auto;
+    font-size: 10px;
+    color: #888;
+    font-style: italic;
   }
 </style>
