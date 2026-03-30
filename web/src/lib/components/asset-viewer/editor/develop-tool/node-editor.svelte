@@ -122,6 +122,7 @@
   // ── I/O wire endpoints (in SVG coordinates) ──
   // IN/OUT should be at the same y as their connected nodes for clean wire routing
   const ioY = $derived.by(() => {
+    void posTick; // Subscribe to position changes
     if (nodes.length === 0) return canvasH / 2;
     // Use y position of first node (they're sorted by x for wire order)
     const sorted = nodes.map((n, i) => ({ node: n, pos: getNodePos(n.id, i) }))
@@ -331,22 +332,6 @@
     <span class="zoom-pct">{Math.round(zoom * 100)}%</span>
   </div>
 
-  <!-- IN connector (viewport-fixed, left side, 50% height) -->
-  <div class="io-connector io-in" style="top: 50%;">
-    <svg width="20" height="20" viewBox="0 0 20 20">
-      <circle cx="10" cy="10" r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" />
-    </svg>
-    <span class="io-label">IN</span>
-  </div>
-
-  <!-- OUT connector (viewport-fixed, right side, 50% height) -->
-  <div class="io-connector io-out" style="top: 50%;">
-    <span class="io-label">OUT</span>
-    <svg width="20" height="20" viewBox="0 0 20 20">
-      <circle cx="10" cy="10" r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" />
-    </svg>
-  </div>
-
   <!-- SVG canvas (zoomable/pannable) -->
   <svg
     width={canvasW}
@@ -355,6 +340,17 @@
     style="transform: translate({translateX}px, {translateY}px) scale({zoom}); transform-origin: 0 0;"
     class="node-svg"
   >
+    <!-- IN/OUT connectors (in SVG coordinate space) -->
+    <g class="io-connectors">
+      <!-- IN connector -->
+      <circle cx={inputX} cy={ioY} r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" />
+      <text x={inputX} y={ioY - 12} fill="#888" font-size="9" font-weight="600" text-anchor="middle">IN</text>
+      
+      <!-- OUT connector -->
+      <circle cx={outputX} cy={ioY} r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" />
+      <text x={outputX} y={ioY - 12} fill="#888" font-size="9" font-weight="600" text-anchor="middle">OUT</text>
+    </g>
+
     <!-- Wires -->
     {#each wires as wire}
       <path d={wire.d} fill="none" stroke={wire.active ? '#60a5fa' : '#555'} stroke-width="2.5" />
@@ -510,32 +506,6 @@
     position: absolute;
     top: 0;
     left: 0;
-  }
-
-  /* I/O connectors — fixed to viewport edges */
-  .io-connector {
-    position: absolute;
-    transform: translateY(-50%);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    z-index: 5;
-    pointer-events: none;
-  }
-
-  .io-in {
-    left: 4px;
-  }
-
-  .io-out {
-    right: 4px;
-  }
-
-  .io-label {
-    font-size: 9px;
-    color: #888;
-    font-weight: 600;
-    letter-spacing: 0.05em;
   }
 
   .zoom-controls {
