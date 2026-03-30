@@ -131,14 +131,35 @@
       const baseName = (asset.originalFileName || 'export').replace(/\.[^.]+$/, '');
       const fileName = `${baseName}_export.${ext}`;
 
-      const url = URL.createObjectURL(finalBlob);
+      // Sanity check: empty blob means something failed upstream
+      if (finalBlob.size === 0) {
+        throw new Error('Export produced empty file (0 bytes)');
+      }
+
+      console.log(`[Export] Downloading ${fileName} (${(finalBlob.size / 1024 / 1024).toFixed(2)} MB)`);
+
+      // Safe download helper (handles Safari/WebKit immediate revoke bug)
+      const objectUrl = URL.createObjectURL(finalBlob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = objectUrl;
       a.download = fileName;
+      a.rel = 'noopener';
       document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+
+      // Click in next frame (more reliable across browsers)
+      requestAnimationFrame(() => {
+        try {
+          a.click();
+        } catch (clickError) {
+          // Fallback: open in new tab (some browsers block anchor downloads from async contexts)
+          console.warn('[Export] Anchor download blocked, trying window.open:', clickError);
+          window.open(objectUrl, '_blank');
+        } finally {
+          a.remove();
+          // IMPORTANT: Delayed revoke (4s) — immediate revoke cancels download in Safari/WebKit
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
+        }
+      });
 
       progress = 'Done!';
       setTimeout(() => onClose(), 800);
