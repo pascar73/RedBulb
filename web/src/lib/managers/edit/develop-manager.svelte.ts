@@ -265,6 +265,26 @@ class DevelopManager implements EditToolManager {
     }, 800); // 800ms debounce — fast enough to feel instant, slow enough to batch slider drags
   }
 
+  /** Cache the current preview canvas for instant restore */
+  cachePreview(assetId: string, canvas: HTMLCanvasElement | null): void {
+    if (!canvas) return;
+    try {
+      const preview = canvas.toDataURL('image/jpeg', 0.85); // 85% quality, good balance
+      localStorage.setItem(`redbulb_preview_${assetId}`, preview);
+    } catch {
+      // Silent fail — caching is optional
+    }
+  }
+
+  /** Get cached preview for instant display on reopen */
+  getCachedPreview(assetId: string): string | null {
+    try {
+      return localStorage.getItem(`redbulb_preview_${assetId}`);
+    } catch {
+      return null;
+    }
+  }
+
   /** Save to localStorage + server (XMP + history) */
   private async _performSave(assetId: string): Promise<void> {
     if (!assetId) return;

@@ -32,6 +32,7 @@
   let pendingRender = false;
   let cachedImg: HTMLImageElement | null = null;
   let cachedImgUrl = '';
+  let cachedPreviewLoaded = false; // Track if we've shown the cached preview
 
   $effect(() => {
     previewWorker = new PreviewWorker();
@@ -45,6 +46,12 @@
             e.data.height,
           );
           ctx.putImageData(imgData, 0, 0);
+          
+          // Cache this rendered preview for instant restore on reopen
+          const assetId = developManager['_currentAssetId'];
+          if (assetId && developManager.hasChanges) {
+            developManager.cachePreview(assetId, canvas);
+          }
         }
       }
       workerBusy = false;
@@ -190,6 +197,26 @@
       if (canvas.width !== newW || canvas.height !== newH) {
         canvas.width = newW;
         canvas.height = newH;
+      }
+      
+      // Load cached preview for instant display (first render only, then worker replaces it)
+      if (!cachedPreviewLoaded) {
+        const assetId = developManager['_currentAssetId'];
+        if (assetId) {
+          const cachedPreview = developManager.getCachedPreview(assetId);
+          if (cachedPreview) {
+            const previewImg = new Image();
+            await new Promise<void>((resolve) => {
+              previewImg.onload = () => {
+                ctx.drawImage(previewImg, 0, 0, newW, newH);
+                resolve();
+              };
+              previewImg.onerror = () => resolve(); // Fail silently
+              previewImg.src = cachedPreview;
+            });
+          }
+        }
+        cachedPreviewLoaded = true;
       }
       
       // Save original image data for eyedropper (use temp canvas to avoid clearing visible one)
