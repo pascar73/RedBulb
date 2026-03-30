@@ -120,6 +120,12 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
 
   onProgress?.(`Processing ${fullW}×${fullH}...`, 15);
 
+  // Warn about huge images (bilateral filters are O(n²) expensive)
+  const megapixels = (fullW * fullH) / 1_000_000;
+  if (megapixels > 30 && resizeMode === 'original') {
+    console.warn(`[Export] Very large image (${megapixels.toFixed(1)} MP). Export may take several minutes. Consider resizing.`);
+  }
+
   // ── Stage 2: Resize FIRST if needed (before expensive worker processing) ──
   // This dramatically speeds up export by running blur/NR on fewer pixels
   const resizeMode = options.resizeMode ?? 'original';
@@ -208,33 +214,48 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
   }
 
   onProgress?.('Rendering...', 25);
+  console.log('[Export] Starting worker processing:', { processW, processH, hasAnyEdits });
 
   // ── Stage 4: Send to export worker (linear-space RapidRAW pipeline) ──
-  const worker = new ExportWorkerModule();
+  let worker: Worker;
+  try {
+    worker = new ExportWorkerModule();
+    console.log('[Export] Worker created successfully');
+  } catch (err) {
+    console.error('[Export] Failed to create worker:', err);
+    throw new Error(`Worker creation failed: ${err instanceof Error ? err.message : 'Unknown'}`);
+  }
 
   const processedData = await new Promise<ImageData>((resolve, reject) => {
-    // Generous timeout for full-res (could be 50MP+ images)
+    console.log('[Export] Worker Promise setup, attaching handlers');
+    // Very generous timeout for full-res exports (bilateral filters are expensive)
+    const timeoutSec = 300; // 5 minutes for 50MP+ images with heavy processing
     const timeout = setTimeout(() => {
+      console.error(`[Export] Worker timeout after ${timeoutSec}s`);
       worker.terminate();
-      reject(new Error('Export timed out (120s). Image may be too large.'));
-    }, 120_000);
+      reject(new Error(`Export timed out (${timeoutSec}s). Try resizing to "Long edge 4096" or "Megapixels 12" for faster export.`));
+    }, timeoutSec * 1000);
 
     worker.onmessage = (e: MessageEvent<ExportWorkerResponse>) => {
+      console.log('[Export] Worker response received:', e.data.type);
       clearTimeout(timeout);
       worker.terminate();
 
       if (e.data.type === 'exported') {
+        console.log('[Export] Worker success:', { width: e.data.width, height: e.data.height });
         resolve(new ImageData(
           new Uint8ClampedArray(e.data.pixels),
           e.data.width,
           e.data.height,
         ));
       } else {
+        console.error('[Export] Unexpected worker response type:', e.data);
         reject(new Error('Unexpected worker response'));
       }
     };
 
     worker.onerror = (err) => {
+      console.error('[Export] Worker error event:', err);
       clearTimeout(timeout);
       worker.terminate();
       reject(new Error(`Export worker error: ${err.message}`));
@@ -290,7 +311,14 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
       vignetteFeather: p.vignetteFeather,
     };
 
+    console.log('[Export] Sending data to worker:', {
+      width: processW,
+      height: processH,
+      pixelBytes: pixelBuf.byteLength,
+      transferables: [pixelBuf, mBuf, rBuf, gBuf, bBuf].map(b => b.byteLength)
+    });
     worker.postMessage(request, [pixelBuf, mBuf, rBuf, gBuf, bBuf]);
+    console.log('[Export] postMessage complete, waiting for worker response...');
   });
 
   // Put processed pixels back on canvas

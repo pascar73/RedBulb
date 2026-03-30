@@ -81,6 +81,7 @@
 
     try {
       const urls = getAssetUrls(asset);
+      console.log('[Export] Starting export:', { format, resizeMode, urls });
 
       // For TIFF, we need raw RGBA pixels from the pipeline, then encode with Tungsten
       const isTiff = format === 'tiff';
@@ -101,6 +102,12 @@
         onProgress: (stage: string) => {
           progress = stage;
         },
+      });
+
+      console.log('[Export] Pipeline returned:', { 
+        isTiff, 
+        hasPixels: !!(blob as any).__tungstenPixels,
+        blobSize: blob.size 
       });
 
       let finalBlob: Blob;
