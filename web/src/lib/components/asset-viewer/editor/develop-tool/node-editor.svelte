@@ -181,6 +181,13 @@
     const pos = getNodePos(nodeId, idx);
     dragStartPos = { x: pos.x, y: pos.y };
 
+    // Lock zoom during drag (prevent auto-fit from changing zoom as canvas expands)
+    if (isAutoFit) {
+      userZoom = fitZoom;
+      panX = autoTX;
+      panY = autoTY;
+    }
+
     const onMove = (ev: MouseEvent) => {
       if (!draggingNodeId) return;
       const dx = (ev.clientX - dragStartMouse.x) / zoom;
