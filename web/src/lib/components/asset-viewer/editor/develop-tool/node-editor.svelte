@@ -97,11 +97,24 @@
 
   function resetToFit() { userZoom = null; panX = 0; panY = 0; }
 
-  // ── I/O wire endpoints (in SVG coordinates) ──
-  // IN/OUT at canvas edges, vertically centered
-  const ioY = $derived(canvasH / 2);
-  const inputX = 16;
-  const outputX = $derived(canvasW - 16);
+  // ── I/O wire endpoints (convert from viewport space to canvas space) ──
+  // IN/OUT are at viewport edges (16px from edge, 50% height)
+  // We need to convert these to canvas coordinates for wire rendering
+  const inputCanvasX = $derived.by(() => {
+    // Viewport coord (16, viewportH/2) → canvas coord
+    return (16 - translateX) / zoom;
+  });
+  const outputCanvasX = $derived.by(() => {
+    // Viewport coord (viewportW - 16, viewportH/2) → canvas coord
+    return (viewportW - 16 - translateX) / zoom;
+  });
+  const ioCanvasY = $derived.by(() => {
+    // Viewport Y (viewportH/2) → canvas Y
+    return (viewportH / 2 - translateY) / zoom;
+  });
+  
+  // Viewport middle Y for IN/OUT overlay
+  const viewportMidY = $derived(viewportH / 2);
 
   // ── Bezier wires ──
   function bezierPath(x1: number, y1: number, x2: number, y2: number): string {
@@ -127,8 +140,8 @@
 
       // Determine start point
       if (conn.from === "input") {
-        x1 = inputX;
-        y1 = ioY;
+        x1 = inputCanvasX;
+        y1 = ioCanvasY;
       } else {
         const fromNode = nodeMap.get(conn.from);
         if (!fromNode) continue; // Skip if node not found
@@ -139,8 +152,8 @@
 
       // Determine end point
       if (conn.to === "output") {
-        x2 = outputX;
-        y2 = ioY;
+        x2 = outputCanvasX;
+        y2 = ioCanvasY;
       } else {
         const toNode = nodeMap.get(conn.to);
         if (!toNode) continue; // Skip if node not found
@@ -328,6 +341,22 @@
     <span class="zoom-pct">{Math.round(zoom * 100)}%</span>
   </div>
 
+  <!-- IN/OUT connectors (viewport-anchored, not transformed) -->
+  <svg
+    width={viewportW}
+    height={viewportH}
+    style="position: absolute; top: 0; left: 0; pointer-events: none;"
+    class="io-overlay"
+  >
+    <!-- IN connector (left edge, viewport middle) -->
+    <circle cx={16} cy={viewportMidY} r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" style="pointer-events: auto;" />
+    <text x={16} y={viewportMidY - 12} fill="#888" font-size="9" font-weight="600" text-anchor="middle">IN</text>
+    
+    <!-- OUT connector (right edge, viewport middle) -->
+    <circle cx={viewportW - 16} cy={viewportMidY} r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" style="pointer-events: auto;" />
+    <text x={viewportW - 16} y={viewportMidY - 12} fill="#888" font-size="9" font-weight="600" text-anchor="middle">OUT</text>
+  </svg>
+
   <!-- SVG canvas (zoomable/pannable) -->
   <svg
     width={canvasW}
@@ -336,16 +365,6 @@
     style="transform: translate({translateX}px, {translateY}px) scale({zoom}); transform-origin: 0 0;"
     class="node-svg"
   >
-    <!-- IN/OUT connectors (in SVG coordinate space) -->
-    <g class="io-connectors">
-      <!-- IN connector -->
-      <circle cx={inputX} cy={ioY} r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" />
-      <text x={inputX} y={ioY - 12} fill="#888" font-size="9" font-weight="600" text-anchor="middle">IN</text>
-      
-      <!-- OUT connector -->
-      <circle cx={outputX} cy={ioY} r={IO_R} fill="#333" stroke="#888" stroke-width="1.5" />
-      <text x={outputX} y={ioY - 12} fill="#888" font-size="9" font-weight="600" text-anchor="middle">OUT</text>
-    </g>
 
     <!-- Wires -->
     {#each wires as wire}
@@ -484,7 +503,7 @@
   {/if}
 
   <!-- Node count -->
-  <div class="node-count">{nodes.length} node{nodes.length !== 1 ? 's' : ''}</div>
+  <div class="node-count">{nodes.length} node{nodes.length !== 1 ? 's' : ''} {#if nodes.length > 0}(ids: {nodes.map(n => n.label || n.id.slice(-2)).join(', ')}){/if}</div>
 </div>
 
 <style>
