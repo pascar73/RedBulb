@@ -12,25 +12,7 @@
   // ── Reactive data from developManager ──
   const nodes = $derived(developManager.nodes);
   const selectedId = $derived(developManager.selectedNodeId);
-
-  // ── Per-node positions (draggable) ──
-  // Use a plain object (not Map) to avoid Svelte proxy issues
-  let positionStore: Record<string, { x: number; y: number }> = {};
-  let posTick = $state(0); // bump to trigger reactivity
-
-  function getNodePos(nodeId: string, idx: number): { x: number; y: number } {
-    void posTick; // subscribe to changes
-    if (positionStore[nodeId]) return positionStore[nodeId];
-    // Lazily initialize default position
-    const pos = { x: 80 + idx * (NODE_W + NODE_GAP), y: 60 };
-    positionStore[nodeId] = pos;
-    return pos;
-  }
-
-  function setNodePos(nodeId: string, x: number, y: number) {
-    positionStore[nodeId] = { x, y };
-    posTick++; // trigger reactivity
-  }
+  const connections = $derived(developManager.nodeGraph?.connections ?? []);
 
   // ── Viewport ──
   let canvasEl = $state<HTMLDivElement | undefined>(undefined);
@@ -48,21 +30,17 @@
 
   // ── Canvas size (derived from node positions) ──
   const canvasW = $derived.by(() => {
-    void posTick;
     let maxX = 0;
-    for (let i = 0; i < nodes.length; i++) {
-      const p = getNodePos(nodes[i].id, i);
-      maxX = Math.max(maxX, p.x + NODE_W);
+    for (const node of nodes) {
+      maxX = Math.max(maxX, node.position.x + NODE_W);
     }
     return Math.max(400, maxX + 80);
   });
 
   const canvasH = $derived.by(() => {
-    void posTick;
     let maxY = 0;
-    for (let i = 0; i < nodes.length; i++) {
-      const p = getNodePos(nodes[i].id, i);
-      maxY = Math.max(maxY, p.y + NODE_H);
+    for (const node of nodes) {
+      maxY = Math.max(maxY, node.position.y + NODE_H);
     }
     return Math.max(180, maxY + 40);
   });
@@ -120,15 +98,8 @@
   function resetToFit() { userZoom = null; panX = 0; panY = 0; }
 
   // ── I/O wire endpoints (in SVG coordinates) ──
-  // IN/OUT should be at the same y as their connected nodes for clean wire routing
-  const ioY = $derived.by(() => {
-    void posTick; // Subscribe to position changes
-    if (nodes.length === 0) return canvasH / 2;
-    // Use y position of first node (they're sorted by x for wire order)
-    const sorted = nodes.map((n, i) => ({ node: n, pos: getNodePos(n.id, i) }))
-      .sort((a, b) => a.pos.x - b.pos.x);
-    return sorted[0].pos.y + NODE_H / 2;
-  });
+  // IN/OUT at canvas edges, vertically centered
+  const ioY = $derived(canvasH / 2);
   const inputX = 16;
   const outputX = $derived(canvasW - 16);
 
@@ -144,31 +115,41 @@
 
   const wires = $derived.by(() => {
     const result: { d: string; active: boolean }[] = [];
-    if (nodes.length === 0) return result;
+    if (nodes.length === 0 || connections.length === 0) return result;
 
-    void posTick;
-    // Get positions sorted by x for wire order
-    const sorted = nodes.map((n, i) => ({ node: n, pos: getNodePos(n.id, i) }))
-      .sort((a, b) => a.pos.x - b.pos.x);
+    // Build node lookup map
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
-    // IN → first node (input connector on left side of node)
-    const first = sorted[0];
-    result.push({ d: bezierPath(inputX, ioY, first.pos.x, first.pos.y + NODE_H / 2), active: true });
+    // Render each connection as a wire
+    for (const conn of connections) {
+      let x1: number, y1: number, x2: number, y2: number;
+      let active = true;
 
-    // Node → Node wires (output of one → input of next)
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const a = sorted[i], b = sorted[i + 1];
-      const active = !a.node.bypass && hasActiveChanges(a.node.state);
-      result.push({ d: bezierPath(
-        a.pos.x + NODE_W, a.pos.y + NODE_H / 2,
-        b.pos.x, b.pos.y + NODE_H / 2,
-      ), active });
+      // Determine start point
+      if (conn.from === "input") {
+        x1 = inputX;
+        y1 = ioY;
+      } else {
+        const fromNode = nodeMap.get(conn.from);
+        if (!fromNode) continue; // Skip if node not found
+        x1 = fromNode.position.x + NODE_W;  // Output connector on right side
+        y1 = fromNode.position.y + NODE_H / 2;
+        active = !fromNode.bypass && hasActiveChanges(fromNode.state);
+      }
+
+      // Determine end point
+      if (conn.to === "output") {
+        x2 = outputX;
+        y2 = ioY;
+      } else {
+        const toNode = nodeMap.get(conn.to);
+        if (!toNode) continue; // Skip if node not found
+        x2 = toNode.position.x;  // Input connector on left side
+        y2 = toNode.position.y + NODE_H / 2;
+      }
+
+      result.push({ d: bezierPath(x1, y1, x2, y2), active });
     }
-
-    // Last node → OUT
-    const last = sorted[sorted.length - 1];
-    const lastActive = !last.node.bypass && hasActiveChanges(last.node.state);
-    result.push({ d: bezierPath(last.pos.x + NODE_W, last.pos.y + NODE_H / 2, outputX, ioY), active: lastActive });
 
     return result;
   });
@@ -182,11 +163,13 @@
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
+    
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    
     draggingNodeId = nodeId;
     dragStartMouse = { x: e.clientX, y: e.clientY };
-    const idx = nodes.findIndex(n => n.id === nodeId);
-    const pos = getNodePos(nodeId, idx);
-    dragStartPos = { x: pos.x, y: pos.y };
+    dragStartPos = { x: node.position.x, y: node.position.y };
 
     // Lock zoom during drag (prevent auto-fit from changing zoom as canvas expands)
     if (isAutoFit) {
@@ -197,12 +180,15 @@
 
     const onMove = (ev: MouseEvent) => {
       if (!draggingNodeId) return;
+      const draggingNode = nodes.find(n => n.id === draggingNodeId);
+      if (!draggingNode) return;
+      
       const dx = (ev.clientX - dragStartMouse.x) / zoom;
       const dy = (ev.clientY - dragStartMouse.y) / zoom;
-      // Gentle boundaries - allow negative for flexibility, clamp extremes
-      const newX = Math.max(-100, Math.min(3000, dragStartPos.x + dx));
-      const newY = Math.max(-50, Math.min(1500, dragStartPos.y + dy));
-      setNodePos(draggingNodeId, newX, newY);
+      
+      // Update position directly on node
+      draggingNode.position.x = Math.max(-100, Math.min(3000, dragStartPos.x + dx));
+      draggingNode.position.y = Math.max(-50, Math.min(1500, dragStartPos.y + dy));
     };
 
     const onUp = (ev: MouseEvent) => {
@@ -299,18 +285,8 @@
     if (!contextMenu) return;
     const afterId = contextMenu.afterNodeId;
     
-    // Create new node
-    developManager.addNode();
-    
-    // If afterId specified, position it after that node
-    if (afterId) {
-      const afterIdx = nodes.findIndex(n => n.id === afterId);
-      if (afterIdx >= 0) {
-        const afterPos = getNodePos(afterId, afterIdx);
-        const newNode = nodes[nodes.length - 1];
-        setNodePos(newNode.id, afterPos.x + NODE_W + NODE_GAP, afterPos.y);
-      }
-    }
+    // Create new node (addNode handles positioning and connections internally)
+    developManager.addNode(afterId || undefined);
     
     contextMenu = null;
   }
@@ -358,9 +334,8 @@
 
     <!-- Nodes -->
     {#each nodes as node, i (node.id)}
-      {@const pos = getNodePos(node.id, i)}
-      {@const nx = pos.x}
-      {@const ny = pos.y}
+      {@const nx = node.position.x}
+      {@const ny = node.position.y}
       {@const isSelected = node.id === selectedId}
       {@const isActive = hasActiveChanges(node.state)}
       {@const isBypassed = node.bypass}

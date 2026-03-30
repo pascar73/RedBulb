@@ -4,7 +4,8 @@ import {
   type NodeGraphV2, type CorrectorNode, type DevelopState,
   createEmptyDevelopState, createDefaultGeometry, createNode,
   resetNodeCounter, migrateV1toV2, mergeNodes, hasActiveChanges,
-  MAX_NODES,
+  buildSerialConnections, insertNodeAfter, appendNode, removeNodeConnections,
+  MAX_NODES, NODE_W, NODE_GAP,
 } from '$lib/components/asset-viewer/editor/node-types';
 import { redBulbFetch } from '$lib/utils/redbulb-api';
 import { toastManager } from '@immich/ui';
@@ -394,7 +395,14 @@ class DevelopManager implements EditToolManager {
 
   /** Initialize node graph from current state if not yet created */
   private _ensureNodeGraph(): void {
-    if (this._nodeGraph) return;
+    if (this._nodeGraph) {
+      // Migrate existing v2 graphs without connections
+      if (!this._nodeGraph.connections || this._nodeGraph.connections.length === 0) {
+        const nodeIds = this._nodeGraph.nodes.map(n => n.id);
+        this._nodeGraph.connections = buildSerialConnections(nodeIds);
+      }
+      return;
+    }
 
     // Wrap current develop state into a v2 node graph
     const currentState = this.serialize();
@@ -450,38 +458,59 @@ class DevelopManager implements EditToolManager {
   }
 
   /** Add a new empty node after the selected node */
-  addNode(): CorrectorNode | null {
+  /** Add a new node, optionally after a specific node. Returns new node ID. */
+  addNode(afterNodeId?: string): string | null {
     if (!this._nodeGraph || this._nodeGraph.nodes.length >= MAX_NODES) return null;
 
     // Save current panel to the currently selected node first
     this._saveCurrentToNode();
 
-    // Find position to insert (after selected)
-    const selectedIdx = this._nodeGraph.nodes.findIndex(n => n.id === this.selectedNodeId);
-    const insertIdx = selectedIdx >= 0 ? selectedIdx + 1 : this._nodeGraph.nodes.length;
-
     // Create new node
     resetNodeCounter(this._nodeGraph.nodes.length);
     const newNode = createNode();
 
-    // Update positions for all nodes after insertion point
-    this._nodeGraph.nodes.splice(insertIdx, 0, newNode);
-    this._recalcPositions();
+    // Determine position (to the right of afterNode, or last node)
+    const afterNode = afterNodeId
+      ? this._nodeGraph.nodes.find(n => n.id === afterNodeId)
+      : this._nodeGraph.nodes[this._nodeGraph.nodes.length - 1];
+
+    if (afterNode) {
+      newNode.position = {
+        x: afterNode.position.x + NODE_W + NODE_GAP,
+        y: afterNode.position.y,
+      };
+    } else {
+      // First node
+      newNode.position = { x: 80, y: 60 };
+    }
+
+    // Add to nodes array
+    this._nodeGraph.nodes.push(newNode);
+
+    // Update connections (insert in chain)
+    if (afterNodeId) {
+      insertNodeAfter(this._nodeGraph.connections, newNode.id, afterNodeId);
+    } else {
+      appendNode(this._nodeGraph.connections, newNode.id);
+    }
 
     // Select the new node (loads empty state into panel)
     this.selectNode(newNode.id);
-    return newNode;
+    return newNode.id;
   }
 
-  /** Delete a node by ID */
+  /** Delete a node by ID and update connections */
   deleteNode(nodeId: string): boolean {
     if (!this._nodeGraph || this._nodeGraph.nodes.length <= 1) return false;
 
     const idx = this._nodeGraph.nodes.findIndex(n => n.id === nodeId);
     if (idx === -1) return false;
 
+    // Remove from nodes array
     this._nodeGraph.nodes.splice(idx, 1);
-    this._recalcPositions();
+
+    // Update connections (reconnect neighbors)
+    removeNodeConnections(this._nodeGraph.connections, nodeId);
 
     // If we deleted the selected node, select the nearest one
     if (this.selectedNodeId === nodeId) {

@@ -96,10 +96,17 @@ export interface CorrectorNode {
 // NODE GRAPH (v2)
 // ══════════════════════════════════════════════════════════════
 
+/** Explicit connection between nodes (directed edge) */
+export interface NodeConnection {
+  from: string;  // Source node ID (or "input" for graph input)
+  to: string;    // Target node ID (or "output" for graph output)
+}
+
 export interface NodeGraphV2 {
   version: 2;
   selectedNodeId: string;
   nodes: CorrectorNode[];
+  connections: NodeConnection[];  // Explicit topology (not inferred from X position)
   geometry: GeometryState;  // Global geometry, not per-node
 }
 
@@ -255,8 +262,113 @@ export function migrateV1toV2(v1: Record<string, unknown>): NodeGraphV2 {
     version: 2,
     selectedNodeId: node.id,
     nodes: [node],
+    connections: buildSerialConnections([node.id]),  // Single node: input → node → output
     geometry,
   };
+}
+
+// ══════════════════════════════════════════════════════════════
+// CONNECTION HELPERS — build and manipulate node topology
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Build a serial chain of connections: input → nodes[0] → nodes[1] → ... → output
+ */
+export function buildSerialConnections(nodeIds: string[]): NodeConnection[] {
+  const conns: NodeConnection[] = [];
+  
+  if (nodeIds.length === 0) return conns;
+  
+  // input → first node
+  conns.push({ from: "input", to: nodeIds[0] });
+  
+  // node → node
+  for (let i = 0; i < nodeIds.length - 1; i++) {
+    conns.push({ from: nodeIds[i], to: nodeIds[i + 1] });
+  }
+  
+  // last node → output
+  conns.push({ from: nodeIds[nodeIds.length - 1], to: "output" });
+  
+  return conns;
+}
+
+/**
+ * Insert a new node after an existing node in the connection graph.
+ * Example: A → B becomes A → NEW → B
+ */
+export function insertNodeAfter(
+  connections: NodeConnection[],
+  newNodeId: string,
+  afterNodeId: string,
+): void {
+  // Find connection: afterNode → X
+  const outIndex = connections.findIndex(c => c.from === afterNodeId);
+  
+  if (outIndex >= 0) {
+    const nextNodeId = connections[outIndex].to;
+    // Replace: afterNode → X with afterNode → newNode
+    connections[outIndex] = { from: afterNodeId, to: newNodeId };
+    // Add: newNode → X
+    connections.push({ from: newNodeId, to: nextNodeId });
+  } else {
+    // afterNode has no output, append to end
+    connections.push({ from: afterNodeId, to: newNodeId });
+    connections.push({ from: newNodeId, to: "output" });
+  }
+}
+
+/**
+ * Append a node to the end of the graph (before output).
+ */
+export function appendNode(
+  connections: NodeConnection[],
+  newNodeId: string,
+): void {
+  // Find connection: X → output
+  const toOutputIndex = connections.findIndex(c => c.to === "output");
+  
+  if (toOutputIndex >= 0) {
+    const lastNodeId = connections[toOutputIndex].from;
+    // Replace: lastNode → output with lastNode → newNode
+    connections[toOutputIndex] = { from: lastNodeId, to: newNodeId };
+    // Add: newNode → output
+    connections.push({ from: newNodeId, to: "output" });
+  } else {
+    // No output connection yet, create chain
+    connections.push({ from: "input", to: newNodeId });
+    connections.push({ from: newNodeId, to: "output" });
+  }
+}
+
+/**
+ * Remove a node from the connection graph and reconnect its neighbors.
+ * Example: A → DEL → B becomes A → B
+ */
+export function removeNodeConnections(
+  connections: NodeConnection[],
+  nodeId: string,
+): void {
+  // Find incoming: X → nodeId
+  const inConn = connections.find(c => c.to === nodeId);
+  // Find outgoing: nodeId → Y
+  const outConn = connections.find(c => c.from === nodeId);
+  
+  // Remove both connections
+  const filtered = connections.filter(c => c.from !== nodeId && c.to !== nodeId);
+  connections.length = 0;
+  connections.push(...filtered);
+  
+  // Reconnect: X → Y
+  if (inConn && outConn) {
+    connections.push({ from: inConn.from, to: outConn.to });
+  } else if (inConn && !outConn) {
+    // Node was at end, reconnect to output
+    connections.push({ from: inConn.from, to: "output" });
+  } else if (!inConn && outConn) {
+    // Node was at start, reconnect from input
+    connections.push({ from: "input", to: outConn.to });
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
