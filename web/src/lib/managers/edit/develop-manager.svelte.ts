@@ -103,6 +103,9 @@ class DevelopManager implements EditToolManager {
     magenta: { h: 0, s: 0, l: 0 },
   });
 
+  /** Auto-save means no "unsaved" changes — everything is saved immediately */
+  hasUnsavedChanges = false;
+
   hasChanges = $derived.by(() => {
     // Check basic parameters
     const hasParamChanges = (

@@ -20,6 +20,8 @@ export interface EditToolManager {
   hasChanges: boolean;
   canReset: boolean;
   edits: EditAction[];
+  /** Optional: for tools with auto-save, can override to return false even when hasChanges is true */
+  hasUnsavedChanges?: boolean;
 }
 
 export enum EditToolType {
@@ -58,7 +60,9 @@ export class EditManager {
   isApplyingEdits = $state(false);
   hasAppliedEdits = $state(false);
 
-  hasUnsavedChanges = $derived(this.tools.some((t) => t.manager.hasChanges) && !this.hasAppliedEdits);
+  hasUnsavedChanges = $derived(
+    this.tools.some((t) => t.manager.hasUnsavedChanges ?? t.manager.hasChanges) && !this.hasAppliedEdits,
+  );
   canReset = $derived(this.tools.some((t) => t.manager.canReset));
 
   async closeConfirm(): Promise<boolean> {
