@@ -120,8 +120,14 @@
   function resetToFit() { userZoom = null; panX = 0; panY = 0; }
 
   // ── I/O wire endpoints (in SVG coordinates) ──
-  // These are where wires attach — at the edges of the canvas, vertically centered
-  const ioY = $derived(canvasH / 2);
+  // IN/OUT should be at the same y as their connected nodes for clean wire routing
+  const ioY = $derived.by(() => {
+    if (nodes.length === 0) return canvasH / 2;
+    // Use y position of first node (they're sorted by x for wire order)
+    const sorted = nodes.map((n, i) => ({ node: n, pos: getNodePos(n.id, i) }))
+      .sort((a, b) => a.pos.x - b.pos.x);
+    return sorted[0].pos.y + NODE_H / 2;
+  });
   const inputX = 16;
   const outputX = $derived(canvasW - 16);
 
@@ -192,7 +198,10 @@
       if (!draggingNodeId) return;
       const dx = (ev.clientX - dragStartMouse.x) / zoom;
       const dy = (ev.clientY - dragStartMouse.y) / zoom;
-      setNodePos(draggingNodeId, Math.max(20, dragStartPos.x + dx), Math.max(10, dragStartPos.y + dy));
+      // Gentle boundaries - allow negative for flexibility, clamp extremes
+      const newX = Math.max(-100, Math.min(3000, dragStartPos.x + dx));
+      const newY = Math.max(-50, Math.min(1500, dragStartPos.y + dy));
+      setNodePos(draggingNodeId, newX, newY);
     };
 
     const onUp = (ev: MouseEvent) => {
@@ -317,7 +326,7 @@
   aria-label="Node Editor"
 >
   <!-- Zoom controls -->
-  <div class="zoom-controls">
+  <div class="zoom-controls" onmousedown={(e) => e.stopPropagation()}>
     <button onclick={resetToFit} title="Fit">Fit</button>
     <span class="zoom-pct">{Math.round(zoom * 100)}%</span>
   </div>
