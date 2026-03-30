@@ -29,20 +29,25 @@
   });
 
   // ── Canvas size (derived from node positions + padding) ──
+  // Fix Issue #1: Account for nodes with x < 0 (left edge)
   const canvasW = $derived.by(() => {
+    let minX = 0;
     let maxX = 0;
     for (const node of nodes) {
+      minX = Math.min(minX, node.position.x);
       maxX = Math.max(maxX, node.position.x + NODE_W);
     }
-    return Math.max(400, maxX + SIDE_PAD * 2);
+    return Math.max(400, maxX - minX + SIDE_PAD * 2);
   });
 
   const canvasH = $derived.by(() => {
+    let minY = 0;
     let maxY = 0;
     for (const node of nodes) {
+      minY = Math.min(minY, node.position.y);
       maxY = Math.max(maxY, node.position.y + NODE_H);
     }
-    return Math.max(180, maxY + TOP_PAD + BOTTOM_PAD);
+    return Math.max(180, maxY - minY + TOP_PAD + BOTTOM_PAD);
   });
 
   // ── Zoom & Pan ──
@@ -97,13 +102,23 @@
 
   function resetToFit() { userZoom = null; panX = 0; panY = 0; }
 
-  // ── I/O terminals (Fix A: stable lane, Fix D: explicit positions) ──
-  // IN/OUT at fixed Y lane (canvasH midpoint), not derived from node positions
-  const ioLaneY = $derived(canvasH / 2);
+  // ── I/O terminals (Fix Issue #2: convert viewport coords to canvas coords) ──
+  // IN/OUT overlay is at viewport coords, but wires need canvas coords
+  // Convert: canvasCoord = (viewportCoord - translate) / zoom
   
-  const terminals = $derived({
-    input: { x: SIDE_PAD, y: ioLaneY },
-    output: { x: canvasW - SIDE_PAD, y: ioLaneY },
+  const terminals = $derived.by(() => {
+    // IN overlay position (viewport): (16, viewportH/2)
+    const inputCanvasX = (16 - translateX) / zoom;
+    const inputCanvasY = (viewportH / 2 - translateY) / zoom;
+    
+    // OUT overlay position (viewport): (viewportW - 16, viewportH/2)
+    const outputCanvasX = (viewportW - 16 - translateX) / zoom;
+    const outputCanvasY = (viewportH / 2 - translateY) / zoom;
+    
+    return {
+      input: { x: inputCanvasX, y: inputCanvasY },
+      output: { x: outputCanvasX, y: outputCanvasY },
+    };
   });
   
   // Viewport middle Y for IN/OUT overlay
