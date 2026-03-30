@@ -193,10 +193,30 @@
 
     const onUp = (ev: MouseEvent) => {
       const dist = Math.abs(ev.clientX - dragStartMouse.x) + Math.abs(ev.clientY - dragStartMouse.y);
+      
       if (dist < 5) {
         // Click (no drag) → select node
         developManager.selectNode(nodeId);
+      } else if (draggingNodeId) {
+        // Drag completed → commit position with validation
+        const draggedNode = nodes.find(n => n.id === draggingNodeId);
+        if (draggedNode) {
+          // Validate and clamp coordinates (prevent NaN/Infinity, enforce bounds)
+          const x = Number.isFinite(draggedNode.position.x) 
+            ? Math.max(-100, Math.min(3000, draggedNode.position.x))
+            : dragStartPos.x;
+          const y = Number.isFinite(draggedNode.position.y)
+            ? Math.max(-50, Math.min(1500, draggedNode.position.y))
+            : dragStartPos.y;
+          
+          // Commit final position (single authoritative write)
+          draggedNode.position = { x, y };
+          
+          // Trigger save (positions are part of graph state)
+          developManager.scheduleAutoSave();
+        }
       }
+      
       draggingNodeId = null;
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);

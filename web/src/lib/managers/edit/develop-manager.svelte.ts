@@ -5,6 +5,7 @@ import {
   createEmptyDevelopState, createDefaultGeometry, createNode,
   resetNodeCounter, migrateV1toV2, mergeNodes, hasActiveChanges,
   buildSerialConnections, insertNodeAfter, appendNode, removeNodeConnections,
+  hasCycle,
   MAX_NODES, NODE_W, NODE_GAP,
 } from '$lib/components/asset-viewer/editor/node-types';
 import { redBulbFetch } from '$lib/utils/redbulb-api';
@@ -396,11 +397,21 @@ class DevelopManager implements EditToolManager {
   /** Initialize node graph from current state if not yet created */
   private _ensureNodeGraph(): void {
     if (this._nodeGraph) {
-      // Migrate existing v2 graphs without connections
+      // Migrate existing v2 graphs without connections (idempotent)
       if (!this._nodeGraph.connections || this._nodeGraph.connections.length === 0) {
         const nodeIds = this._nodeGraph.nodes.map(n => n.id);
-        this._nodeGraph.connections = buildSerialConnections(nodeIds);
+        this._nodeGraph.connections = buildSerialConnections(
+          nodeIds,
+          this._nodeGraph.connections,
+        );
+        console.log(`[NodeGraph] Migrated ${nodeIds.length} nodes to serial connections`);
       }
+      
+      // Validate connections on load
+      if (hasCycle(this._nodeGraph.connections)) {
+        console.error('[NodeGraph] Cycle detected in connections! Graph may not process correctly.');
+      }
+      
       return;
     }
 

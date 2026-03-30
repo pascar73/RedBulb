@@ -268,13 +268,129 @@ export function migrateV1toV2(v1: Record<string, unknown>): NodeGraphV2 {
 }
 
 // ══════════════════════════════════════════════════════════════
+// CONNECTION VALIDATION — prevent invalid topologies
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Check if a connection already exists in the graph
+ */
+export function hasConnection(
+  connections: NodeConnection[],
+  from: string,
+  to: string,
+): boolean {
+  return connections.some(c => c.from === from && c.to === to);
+}
+
+/**
+ * Check if adding a connection would create a self-loop
+ */
+export function isSelfLoop(from: string, to: string): boolean {
+  return from === to && from !== "input" && from !== "output";
+}
+
+/**
+ * Detect cycles in the connection graph using DFS
+ * Returns true if a cycle exists
+ */
+export function hasCycle(connections: NodeConnection[]): boolean {
+  const adjacency = new Map<string, string[]>();
+  const visited = new Set<string>();
+  const recStack = new Set<string>();
+  
+  // Build adjacency list (skip "input" and "output" special nodes)
+  for (const conn of connections) {
+    if (conn.from !== "input" && conn.from !== "output") {
+      if (!adjacency.has(conn.from)) adjacency.set(conn.from, []);
+      if (conn.to !== "input" && conn.to !== "output") {
+        adjacency.get(conn.from)!.push(conn.to);
+      }
+    }
+  }
+  
+  // DFS cycle detection
+  function dfs(node: string): boolean {
+    visited.add(node);
+    recStack.add(node);
+    
+    const neighbors = adjacency.get(node) || [];
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor)) {
+        if (dfs(neighbor)) return true;
+      } else if (recStack.has(neighbor)) {
+        return true; // Back edge found → cycle
+      }
+    }
+    
+    recStack.delete(node);
+    return false;
+  }
+  
+  // Check all nodes
+  for (const node of adjacency.keys()) {
+    if (!visited.has(node)) {
+      if (dfs(node)) return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Validate a connection before adding it to the graph
+ * Returns error message if invalid, null if valid
+ */
+export function validateConnection(
+  connections: NodeConnection[],
+  from: string,
+  to: string,
+): string | null {
+  // Check for self-loop
+  if (isSelfLoop(from, to)) {
+    return `Self-loop not allowed: ${from} → ${from}`;
+  }
+  
+  // Check for duplicate
+  if (hasConnection(connections, from, to)) {
+    return `Duplicate connection: ${from} → ${to}`;
+  }
+  
+  // Check if adding this connection would create a cycle
+  const testConns = [...connections, { from, to }];
+  if (hasCycle(testConns)) {
+    return `Cycle detected: adding ${from} → ${to} would create a loop`;
+  }
+  
+  return null; // Valid
+}
+
+// ══════════════════════════════════════════════════════════════
 // CONNECTION HELPERS — build and manipulate node topology
 // ══════════════════════════════════════════════════════════════
 
 /**
  * Build a serial chain of connections: input → nodes[0] → nodes[1] → ... → output
+ * Idempotent: only adds connections that don't already exist
+ * 
+ * @param nodeIds - Array of node IDs in desired serial order
+ * @param existingConnections - Optional existing connections to preserve/merge with
+ * @returns New connections array (serial chain)
  */
-export function buildSerialConnections(nodeIds: string[]): NodeConnection[] {
+export function buildSerialConnections(
+  nodeIds: string[],
+  existingConnections?: NodeConnection[],
+): NodeConnection[] {
+  // If existing connections provided and already complete, return them
+  if (existingConnections && existingConnections.length > 0) {
+    // Check if existing connections already form a valid serial chain
+    const hasInput = existingConnections.some(c => c.from === "input");
+    const hasOutput = existingConnections.some(c => c.to === "output");
+    if (hasInput && hasOutput) {
+      // Assume existing connections are intentional, don't rebuild
+      return existingConnections;
+    }
+  }
+  
   const conns: NodeConnection[] = [];
   
   if (nodeIds.length === 0) return conns;
@@ -296,6 +412,7 @@ export function buildSerialConnections(nodeIds: string[]): NodeConnection[] {
 /**
  * Insert a new node after an existing node in the connection graph.
  * Example: A → B becomes A → NEW → B
+ * Validates connections before adding (prevents duplicates, self-loops, cycles)
  */
 export function insertNodeAfter(
   connections: NodeConnection[],
@@ -307,12 +424,34 @@ export function insertNodeAfter(
   
   if (outIndex >= 0) {
     const nextNodeId = connections[outIndex].to;
+    
+    // Validate both connections before mutation
+    const err1 = validateConnection(
+      connections.filter((_, i) => i !== outIndex),
+      afterNodeId,
+      newNodeId,
+    );
+    const err2 = validateConnection(connections, newNodeId, nextNodeId);
+    
+    if (err1 || err2) {
+      console.warn(`insertNodeAfter validation failed: ${err1 || err2}`);
+      return;
+    }
+    
     // Replace: afterNode → X with afterNode → newNode
     connections[outIndex] = { from: afterNodeId, to: newNodeId };
     // Add: newNode → X
     connections.push({ from: newNodeId, to: nextNodeId });
   } else {
     // afterNode has no output, append to end
+    const err1 = validateConnection(connections, afterNodeId, newNodeId);
+    const err2 = validateConnection(connections, newNodeId, "output");
+    
+    if (err1 || err2) {
+      console.warn(`insertNodeAfter (append) validation failed: ${err1 || err2}`);
+      return;
+    }
+    
     connections.push({ from: afterNodeId, to: newNodeId });
     connections.push({ from: newNodeId, to: "output" });
   }
@@ -320,6 +459,7 @@ export function insertNodeAfter(
 
 /**
  * Append a node to the end of the graph (before output).
+ * Validates connections before adding (prevents duplicates, self-loops, cycles)
  */
 export function appendNode(
   connections: NodeConnection[],
@@ -330,12 +470,34 @@ export function appendNode(
   
   if (toOutputIndex >= 0) {
     const lastNodeId = connections[toOutputIndex].from;
+    
+    // Validate both connections before mutation
+    const err1 = validateConnection(
+      connections.filter((_, i) => i !== toOutputIndex),
+      lastNodeId,
+      newNodeId,
+    );
+    const err2 = validateConnection(connections, newNodeId, "output");
+    
+    if (err1 || err2) {
+      console.warn(`appendNode validation failed: ${err1 || err2}`);
+      return;
+    }
+    
     // Replace: lastNode → output with lastNode → newNode
     connections[toOutputIndex] = { from: lastNodeId, to: newNodeId };
     // Add: newNode → output
     connections.push({ from: newNodeId, to: "output" });
   } else {
     // No output connection yet, create chain
+    const err1 = validateConnection(connections, "input", newNodeId);
+    const err2 = validateConnection(connections, newNodeId, "output");
+    
+    if (err1 || err2) {
+      console.warn(`appendNode (new chain) validation failed: ${err1 || err2}`);
+      return;
+    }
+    
     connections.push({ from: "input", to: newNodeId });
     connections.push({ from: newNodeId, to: "output" });
   }
