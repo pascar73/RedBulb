@@ -6,6 +6,9 @@ import {
   resetNodeCounter, migrateV1toV2, mergeNodes, hasActiveChanges,
   MAX_NODES,
 } from '$lib/components/asset-viewer/editor/node-types';
+import { redBulbFetch } from '$lib/utils/redbulb-api';
+import { toastManager } from '@immich/ui';
+import { getCurrentVersion } from '$lib/managers/edit/develop-history-api';
 
 class DevelopManager implements EditToolManager {
   // Current asset ID for auto-save
@@ -289,35 +292,33 @@ class DevelopManager implements EditToolManager {
   private async _performSave(assetId: string): Promise<void> {
     if (!assetId) return;
 
-    // Always save to localStorage (instant restore)
+    // Always save to localStorage first (instant restore, canonical while editing)
     this.saveToStorage(assetId);
 
-    // Save to server (XMP sidecar + version history)
-    const baseUrl = `${window.location.protocol}//${window.location.hostname}:3380`;
-
+    // Save to server (XMP sidecar + version history) — authoritative persistence
     try {
       // Save XMP sidecar
       const xmp = this._generateXMP();
-      await fetch(`${baseUrl}/api/assets/${assetId}/xmp`, {
+      await redBulbFetch(`/assets/${assetId}/xmp`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ xmp }),
       });
 
       // Save to version history (auto-checkpoint)
       // Use v2 (node graph) if available, otherwise v1 (panel state)
       const stateToSave = this.serializeV2() ?? this.serialize();
-      await fetch(`${baseUrl}/api/assets/${assetId}/develop-history`, {
+      await redBulbFetch(`/assets/${assetId}/develop-history`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           state: stateToSave,
           label: '',
           isAutoCheckpoint: true,
         }),
       });
-    } catch {
-      // Silent fail — localStorage has the data, server save is best-effort
+    } catch (error) {
+      // Non-blocking error toast — localStorage has the data, server save is best-effort
+      console.error('[RedBulb] Server save failed:', error);
+      toastManager.warning('Changes saved locally. Server sync will retry.');
     }
   }
 
@@ -627,20 +628,19 @@ class DevelopManager implements EditToolManager {
     }
   }
 
-  /** Load saved edits from server (history API). */
+  /** Load saved edits from server (history API — authoritative source). */
   async loadFromServer(assetId: string): Promise<boolean> {
     if (!assetId) return false;
     try {
-      const baseUrl = `${window.location.protocol}//${window.location.hostname}:3380`;
-      const res = await fetch(`${baseUrl}/api/assets/${assetId}/develop-history/current`);
-      if (!res.ok) return false;
-      const data = await res.json();
-      if (data?.state && typeof data.state === 'object') {
-        this.deserialize(data.state);
+      const version = await getCurrentVersion(assetId);
+      if (version?.state && typeof version.state === 'object') {
+        this.deserialize(version.state);
         return true;
       }
       return false;
-    } catch {
+    } catch (error) {
+      console.warn('[RedBulb] Failed to load from server:', error);
+      // Will fall back to localStorage in onActivate
       return false;
     }
   }
