@@ -130,6 +130,18 @@
     developManager.curves[activeChannel] = points as any;
   }
 
+  // Lantana fix: One-time migration persistence (prevent ID regeneration)
+  function migrateAndPersistIds(channel: Channel) {
+    const stored = developManager.curves[channel];
+    const needsMigration = stored.some((pt: any) => !pt.id);
+    if (needsMigration) {
+      const migrated = stored.map((pt: any) => 
+        pt.id ? pt : { id: generatePointId(), x: pt.x, y: pt.y }
+      );
+      developManager.curves[channel] = migrated as any;
+    }
+  }
+
   function getEp() {
     return developManager.curveEndpoints[activeChannel];
   }
@@ -152,6 +164,17 @@
   // ══════════════════════════════════════════════════════════
   // Effects
   // ══════════════════════════════════════════════════════════
+
+  // Lantana fix: One-time ID migration on channel change/load
+  $effect(() => {
+    migrateAndPersistIds(activeChannel);
+    // Also migrate other channels on first load
+    if (activeChannel === 'master') {
+      migrateAndPersistIds('red');
+      migrateAndPersistIds('green');
+      migrateAndPersistIds('blue');
+    }
+  });
 
   // Track SVG rendered size for constant-pixel-size control points + dynamic scope resolution
   $effect(() => {
