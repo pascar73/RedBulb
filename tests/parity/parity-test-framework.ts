@@ -106,36 +106,87 @@ export function hashImage(buffer: Buffer): string {
 /**
  * Compare two images pixel-by-pixel
  * Returns percentage difference (0.0 = identical, 1.0 = completely different)
+ * Generates heatmap showing differences if requested
  */
 export async function compareImages(
   imageA: Buffer,
   imageB: Buffer,
-  generateDiffImage: boolean = false
+  generateDiffImage: boolean = false,
+  diffImagePath?: string
 ): Promise<ImageComparisonResult> {
-  // This is a placeholder - will implement with actual image library (sharp or canvas)
-  // For now, just compare buffers
+  const sharp = require('sharp');
+  const pixelmatch = require('pixelmatch');
+  const { PNG } = require('pngjs');
   
-  if (imageA.length !== imageB.length) {
-    return {
-      percentage: 1.0,
-      pixelsDifferent: Math.abs(imageA.length - imageB.length),
-      totalPixels: Math.max(imageA.length, imageB.length),
-    };
+  // Convert both images to raw RGBA buffers
+  const [metaA, metaB] = await Promise.all([
+    sharp(imageA).metadata(),
+    sharp(imageB).metadata(),
+  ]);
+  
+  // Ensure same dimensions
+  if (metaA.width !== metaB.width || metaA.height !== metaB.height) {
+    throw new Error(
+      `Image dimensions don't match: ` +
+      `${metaA.width}x${metaA.height} vs ${metaB.width}x${metaB.height}`
+    );
   }
   
-  let differentPixels = 0;
-  const totalPixels = imageA.length;
+  const width = metaA.width!;
+  const height = metaA.height!;
   
-  for (let i = 0; i < imageA.length; i++) {
-    if (imageA[i] !== imageB[i]) {
-      differentPixels++;
+  // Get raw pixel data
+  const [rawA, rawB] = await Promise.all([
+    sharp(imageA).raw().toBuffer(),
+    sharp(imageB).raw().toBuffer(),
+  ]);
+  
+  // Create PNG objects for pixelmatch
+  const pngA = new PNG({ width, height });
+  const pngB = new PNG({ width, height });
+  pngA.data = rawA;
+  pngB.data = rawB;
+  
+  // Create diff image buffer
+  const diff = new PNG({ width, height });
+  
+  // Run pixelmatch
+  const pixelsDifferent = pixelmatch(
+    pngA.data,
+    pngB.data,
+    diff.data,
+    width,
+    height,
+    {
+      threshold: 0.1,  // Sensitivity (0.0 = exact match, 1.0 = very different)
+      alpha: 0.1,      // Opacity of diff
+      diffColor: [255, 0, 0],  // Red for differences
+      diffMask: generateDiffImage,
     }
+  );
+  
+  const totalPixels = width * height;
+  const percentage = pixelsDifferent / totalPixels;
+  
+  // Generate heatmap if requested
+  let savedDiffPath: string | undefined;
+  if (generateDiffImage && diffImagePath) {
+    // Save diff image as PNG
+    await fs.promises.mkdir(path.dirname(diffImagePath), { recursive: true });
+    const stream = fs.createWriteStream(diffImagePath);
+    diff.pack().pipe(stream);
+    await new Promise((resolve, reject) => {
+      stream.on('finish', resolve);
+      stream.on('error', reject);
+    });
+    savedDiffPath = diffImagePath;
   }
   
   return {
-    percentage: differentPixels / totalPixels,
-    pixelsDifferent: differentPixels,
+    percentage,
+    pixelsDifferent,
     totalPixels,
+    diffImagePath: savedDiffPath,
   };
 }
 
@@ -206,8 +257,16 @@ export async function runParityTest(test: ParityTest): Promise<ParityTestResult>
   const serverMs = Date.now() - serverStart;
   const serverHash = hashImage(serverOutput);
   
-  // Compare
-  const diff = await compareImages(clientOutput, serverOutput, true);
+  // Compare (generate heatmap on failure)
+  const reportsPath = path.join(__dirname, 'reports', 'diffs');
+  const diffImagePath = path.join(reportsPath, `${test.input.name}-diff.png`);
+  
+  const diff = await compareImages(
+    clientOutput,
+    serverOutput,
+    true,  // Always generate diff image for analysis
+    diffImagePath
+  );
   
   // Check against golden image (if exists)
   const goldenHash = test.expected.hash;

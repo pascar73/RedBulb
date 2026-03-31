@@ -1,0 +1,21 @@
+{
+  "name": "redbulb-parity-tests",
+  "version": "1.0.0",
+  "description": "RedBulb preview/export parity test suite",
+  "private": true,
+  "scripts": {
+    "test:parity": "ts-node run-tests.ts",
+    "test:parity:extended": "ts-node run-tests.ts extended",
+    "test:parity:verbose": "ts-node run-tests.ts --verbose"
+  },
+  "dependencies": {
+    "sharp": "^0.32.0",
+    "pixelmatch": "^5.3.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}
