@@ -229,11 +229,51 @@
       origW = newW;
       origH = newH;
 
-      const p = developManager.params;
-      const curves = developManager.curves;
-      const hsl = developManager.hsl;
-      const ep = developManager.curveEndpoints;
-      const cw = developManager.colorWheels;
+      // Fresh foundation: Use evaluated state from node graph
+      const evalState = developManager.getEvaluatedState({ 
+        stopAtNodeId: developManager.selectedNodeId || undefined 
+      });
+      
+      // Flatten for easier access (matching old params structure)
+      const p = {
+        exposure: evalState.basic.exposure,
+        contrast: evalState.basic.contrast,
+        highlights: evalState.basic.highlights,
+        shadows: evalState.basic.shadows,
+        whites: evalState.basic.whites,
+        blacks: evalState.basic.blacks,
+        brightness: evalState.basic.brightness,
+        saturation: evalState.color.saturation,
+        temperature: evalState.color.temperature,
+        tint: evalState.color.tint,
+        vibrance: evalState.color.vibrance,
+        toneMapper: evalState.toneMapper,
+        sharpness: evalState.details.sharpness,
+        noiseReduction: evalState.details.noiseReduction,
+        clarity: evalState.details.clarity,
+        dehaze: evalState.details.dehaze,
+        caCorrection: evalState.details.caCorrection,
+        texture: evalState.effects.texture,
+        vignette: evalState.effects.vignette,
+        vignetteMidpoint: evalState.effects.vignetteMidpoint,
+        vignetteRoundness: evalState.effects.vignetteRoundness,
+        vignetteFeather: evalState.effects.vignetteFeather,
+        vignetteHighlights: evalState.effects.vignetteHighlights,
+        grain: evalState.effects.grain,
+        grainSize: evalState.effects.grainSize,
+        grainRoughness: evalState.effects.grainRoughness,
+        fade: evalState.effects.fade,
+        // Geometry is global (not per-node)
+        geoRotation: developManager.geoRotation,
+        geoDistortion: developManager.geoDistortion,
+        geoVertical: developManager.geoVertical,
+        geoHorizontal: developManager.geoHorizontal,
+        geoScale: developManager.geoScale,
+      };
+      const curves = evalState.curves;
+      const hsl = evalState.hsl;
+      const ep = evalState.curveEndpoints;
+      const cw = evalState.colorWheels;
       const hasCurves = Object.values(curves).some(ch => ch.length > 0);
       const hasEndpoints = Object.values(ep).some(e => e.black.x !== 0 || e.black.y !== 0 || e.white.x !== 1 || e.white.y !== 1);
       const hasHSL = Object.values(hsl).some(ch => ch.h !== 0 || ch.s !== 0 || ch.l !== 0);

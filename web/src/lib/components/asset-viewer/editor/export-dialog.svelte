@@ -86,13 +86,53 @@
       // For TIFF, we need raw RGBA pixels from the pipeline, then encode with Tungsten
       const isTiff = format === 'tiff';
 
+      // Fresh foundation: Use evaluated state from full node chain (no stopAtNodeId)
+      const evalState = developManager.getEvaluatedState();
+      
+      // Flatten for export pipeline (matches old params structure)
+      const flatParams = {
+        exposure: evalState.basic.exposure,
+        contrast: evalState.basic.contrast,
+        highlights: evalState.basic.highlights,
+        shadows: evalState.basic.shadows,
+        whites: evalState.basic.whites,
+        blacks: evalState.basic.blacks,
+        brightness: evalState.basic.brightness,
+        saturation: evalState.color.saturation,
+        temperature: evalState.color.temperature,
+        tint: evalState.color.tint,
+        vibrance: evalState.color.vibrance,
+        toneMapper: evalState.toneMapper,
+        sharpness: evalState.details.sharpness,
+        noiseReduction: evalState.details.noiseReduction,
+        clarity: evalState.details.clarity,
+        dehaze: evalState.details.dehaze,
+        caCorrection: evalState.details.caCorrection,
+        texture: evalState.effects.texture,
+        vignette: evalState.effects.vignette,
+        vignetteMidpoint: evalState.effects.vignetteMidpoint,
+        vignetteRoundness: evalState.effects.vignetteRoundness,
+        vignetteFeather: evalState.effects.vignetteFeather,
+        vignetteHighlights: evalState.effects.vignetteHighlights,
+        grain: evalState.effects.grain,
+        grainSize: evalState.effects.grainSize,
+        grainRoughness: evalState.effects.grainRoughness,
+        fade: evalState.effects.fade,
+        // Geometry is global
+        geoRotation: developManager.geoRotation,
+        geoDistortion: developManager.geoDistortion,
+        geoVertical: developManager.geoVertical,
+        geoHorizontal: developManager.geoHorizontal,
+        geoScale: developManager.geoScale,
+      };
+      
       const blob = await exportDevelopedImage({
         originalUrl: urls.original,
-        params: developManager.params,
-        curves: developManager.curves,
-        curveEndpoints: developManager.curveEndpoints,
-        hsl: developManager.hsl,
-        colorWheels: developManager.colorWheels,
+        params: flatParams,
+        curves: evalState.curves,
+        curveEndpoints: evalState.curveEndpoints,
+        hsl: evalState.hsl,
+        colorWheels: evalState.colorWheels,
         format: isTiff ? 'png' : format,
         quality: quality / 100,
         resizeMode: resizeMode === 'custom' ? 'longEdge' : resizeMode,

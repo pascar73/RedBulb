@@ -8,6 +8,8 @@ import {
   hasCycle,
   MAX_NODES, NODE_W, NODE_GAP, TOP_PAD, SIDE_PAD,
 } from '$lib/components/asset-viewer/editor/node-types';
+import { evaluateNodeGraph } from '$lib/components/asset-viewer/editor/node-graph-evaluate';
+import type { EvalOptions } from '$lib/components/asset-viewer/editor/node-graph-types';
 import { redBulbFetch } from '$lib/utils/redbulb-api';
 import { toastManager } from '@immich/ui';
 import { getCurrentVersion } from '$lib/managers/edit/develop-history-api';
@@ -233,6 +235,30 @@ class DevelopManager implements EditToolManager {
     hsl: this.hsl,
     colorWheels: this.colorWheels
   }));
+
+  /**
+   * Fresh foundation: Get evaluated state from node graph.
+   * This is the integration seam for preview/export.
+   * 
+   * @param opts - Evaluation options (stopAtNodeId for selected-node preview)
+   * @returns Flattened DevelopState from evaluating active nodes
+   */
+  getEvaluatedState(opts?: EvalOptions): DevelopState {
+    const graph = this.nodeGraph;
+    
+    if (!graph || graph.nodes.length === 0) {
+      // Fallback: no node graph, return current panel state as DevelopState
+      return this.serialize() as DevelopState;
+    }
+    
+    const result = evaluateNodeGraph(graph, opts);
+    
+    if (result.warnings.length > 0) {
+      console.warn('[NodeGraph] Evaluation warnings:', result.warnings);
+    }
+    
+    return result.flattenedState;
+  }
 
   async onActivate(asset: AssetResponseDto, edits: EditActions): Promise<void> {
     this._isLoading = true;
