@@ -59,8 +59,11 @@ diff_percentage = pixels_different / total_pixels
 
 ### When to Increase Threshold
 
-1. **Grain Effect:** Random seed differences between client/server
-   - Acceptable: 2% (as long as grain looks visually similar)
+1. **Grain Effect:** Deterministic seed control required
+   - **Policy:** Client and server MUST use same grain seed for given image
+   - **Implementation:** Seed = hash(image_path + node_id + grain_params)
+   - **Acceptable difference:** < 0.5% (seed ensures identical noise pattern)
+   - **If seed control not implemented:** Test will fail (no exception)
 
 2. **Tone Mapping:** Complex non-linear transforms
    - Acceptable: 5% (visual similarity more important than pixel-perfect)
@@ -150,3 +153,46 @@ Golden images should be regenerated when:
 **Version:** 1.0  
 **Last Updated:** 2026-03-31  
 **Author:** Cassia 🦐
+
+## Grain Seed Control (Mandatory)
+
+### Problem
+
+Film grain adds random noise to images. If client and server use different random seeds, outputs will differ significantly even with identical algorithms.
+
+### Solution
+
+**Deterministic seed generation:**
+
+```typescript
+function getGrainSeed(
+  imagePath: string,
+  nodeId: string,
+  grainParams: { size: number; roughness: number }
+): number {
+  // Seed based on image path + node + params = deterministic across runs
+  const seedString = `${imagePath}:${nodeId}:${grainParams.size}:${grainParams.roughness}`;
+  const hash = crypto.createHash('sha256').update(seedString).digest();
+  return hash.readUInt32LE(0); // Convert first 4 bytes to number
+}
+```
+
+### Implementation Requirements
+
+1. **Both client and server** must use `getGrainSeed()` for grain effect
+2. **Never use** `Math.random()` directly for grain
+3. **Always pass** same imagePath, nodeId, grainParams to seed function
+4. **Test** grain parity explicitly (test case in core suite)
+
+### Parity Test
+
+When grain is applied:
+- ✅ Client and server use same seed → diff < 0.5%
+- ❌ Different seeds → diff > 10% (test fails, as expected)
+
+This ensures grain looks identical, not just "similar."
+
+---
+
+**Status:** Policy defined, implementation pending  
+**Gate Requirement:** Grain seed control must be implemented before Phase 2
