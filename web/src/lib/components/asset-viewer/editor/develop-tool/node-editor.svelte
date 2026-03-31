@@ -388,8 +388,17 @@
   aria-label="Node Editor"
 >
   <!-- Zoom controls -->
+  <!-- FIX #3: Add zoom in/out buttons -->
   <div class="zoom-controls" onmousedown={(e) => e.stopPropagation()}>
-    <button onclick={resetToFit} title="Fit">Fit</button>
+    <button onclick={() => { 
+      if (isAutoFit) { panX = autoTX; panY = autoTY; }
+      userZoom = Math.min(3, zoom * 1.2); 
+    }} title="Zoom In">+</button>
+    <button onclick={() => { 
+      if (isAutoFit) { panX = autoTX; panY = autoTY; }
+      userZoom = Math.max(0.1, zoom / 1.2); 
+    }} title="Zoom Out">−</button>
+    <button onclick={resetToFit} title="Reset to Fit">Fit</button>
     <span class="zoom-pct">{Math.round(zoom * 100)}%</span>
   </div>
 
@@ -555,8 +564,24 @@
     </div>
   {/if}
 
-  <!-- Node count -->
-  <div class="node-count">{nodes.length} node{nodes.length !== 1 ? 's' : ''} {#if nodes.length > 0}(ids: {nodes.map(n => n.label || n.id.slice(-2)).join(', ')}){/if}</div>
+  <!-- Node controls footer -->
+  <!-- FIX #9: Add Disable All Nodes button (like DaVinci Resolve) -->
+  <div class="node-footer">
+    <button 
+      class="disable-all-btn" 
+      onclick={() => {
+        const anyActive = nodes.some(n => !n.bypass);
+        for (const node of nodes) {
+          node.bypass = anyActive;
+        }
+        developManager.scheduleAutoSave();
+      }}
+      title={nodes.some(n => !n.bypass) ? 'Disable All Nodes' : 'Enable All Nodes'}
+    >
+      {nodes.some(n => !n.bypass) ? '⊘ Disable All' : '○ Enable All'}
+    </button>
+    <div class="node-count">{nodes.length} node{nodes.length !== 1 ? 's' : ''} {#if nodes.length > 0}(ids: {nodes.map(n => n.label || n.id.slice(-2)).join(', ')}){/if}</div>
+  </div>
 </div>
 
 <style>
@@ -613,12 +638,9 @@
   .node-group.dragging { cursor: grabbing; }
 
   .node-count {
-    position: absolute;
-    bottom: 4px;
-    right: 8px;
     font-size: 10px;
     color: #555;
-    z-index: 5;
+    margin-left: auto;
   }
 
   .node-label-input {
@@ -690,5 +712,36 @@
     font-size: 10px;
     color: #888;
     font-style: italic;
+  }
+
+  /* FIX #9: Disable All Nodes footer styles */
+  .node-footer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.4);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .disable-all-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.05);
+    color: #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .disable-all-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.3);
   }
 </style>
