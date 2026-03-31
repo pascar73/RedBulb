@@ -3,6 +3,8 @@
   import { editManager } from '$lib/managers/edit/edit-manager.svelte';
   import { buildCurveLUT, buildCurveSVGPath, LUTCache } from './curve-engine';
   import ScopeWorker from './scope-worker?worker';
+  import { ScopeRenderer, drawGraticule as renderGraticule } from './scope-renderer';
+  import type { ScopeRenderConfig } from './scope-renderer';
 
   type Channel = 'master' | 'red' | 'green' | 'blue';
   
@@ -54,37 +56,33 @@
   // ── LUT cache ─────────────────────────────────────────────
   const lutCache = new LUTCache();
 
-  // ── Scope Worker — all heavy pixel processing off main thread
+  // ── Scope rendering via ScopeRenderer (worker lifecycle managed externally)
   let scopeWorker: Worker | null = null;
-  let workerBusy = false;
-  let pendingRender = false;
+  let scopeRenderer: ScopeRenderer | null = null;
 
-  function initWorker() {
-    if (scopeWorker) return;
+  function initScopeRenderer() {
+    if (scopeRenderer || !scopeCanvas) return;
     try {
       scopeWorker = new ScopeWorker();
-      scopeWorker.onmessage = (e) => {
-        workerBusy = false;
-        if (e.data.type === 'rendered' && scopeCanvas) {
-          const ctx = scopeCanvas.getContext('2d')!;
-          const img = new ImageData(
-            new Uint8ClampedArray(e.data.imageData),
-            e.data.width,
-            e.data.height,
-          );
-          ctx.clearRect(0, 0, scopeCanvas.width, scopeCanvas.height);
-          ctx.putImageData(img, 0, 0);
-          drawGraticule(ctx);
+      scopeRenderer = new ScopeRenderer(scopeWorker, scopeCanvas, (_config) => {
+        // After each render, overlay the graticule
+        if (scopeCanvas) {
+          const ctx = scopeCanvas.getContext('2d');
+          if (ctx) {
+            renderGraticule(ctx, {
+              scopeType: activeScopeType,
+              opacity: graticuleOpacity,
+              showRefLevels,
+              refLow,
+              refHigh,
+            });
+          }
         }
-        // If a render was requested while busy, do it now
-        if (pendingRender) {
-          pendingRender = false;
-          requestScopeUpdate();
-        }
-      };
+      });
     } catch {
-      // Workers not supported — fall back silently (scopes won't render)
+      // Workers not supported — fall back silently
       scopeWorker = null;
+      scopeRenderer = null;
     }
   }
 
@@ -95,7 +93,31 @@
     if (scopeRafId !== null) return;
     scopeRafId = requestAnimationFrame(() => {
       scopeRafId = null;
-      renderScope();
+      if (!scopeRenderer || !hasImageData) return;
+      const p = developManager.params;
+      scopeRenderer.renderScope({
+        scopeType: activeScopeType,
+        brightness: scopeBrightness,
+        colorize: colorizeWaveform,
+        curves: developManager.curves,
+        curveEndpoints: developManager.curveEndpoints,
+        lutCache,
+        light: {
+          exposure: p.exposure,
+          highlights: p.highlights,
+          shadows: p.shadows,
+          whites: p.whites,
+          blacks: p.blacks,
+          brightness: p.brightness,
+          contrast: p.contrast,
+          saturation: p.saturation,
+          vibrance: p.vibrance,
+          clarity: p.clarity,
+          dehaze: p.dehaze,
+          fade: p.fade,
+          texture: p.texture,
+        },
+      });
     });
   }
 
@@ -187,6 +209,7 @@
         if (scopeCanvas && (scopeCanvas.width !== w || scopeCanvas.height !== w)) {
           scopeCanvas.width = w;
           scopeCanvas.height = w;
+          if (scopeRenderer) scopeRenderer.setCanvas(scopeCanvas);
           if (hasImageData) requestScopeUpdate();
         }
       }
@@ -213,11 +236,18 @@
     void showRefLevels;
     void refLow;
     void refHigh;
-    // Graticule is drawn on main thread (SVG grid + canvas overlay)
-    // SVG grid is reactive via template binding. Canvas graticule needs manual redraw.
+    // Redraw graticule on top of existing scope (no worker needed)
     if (scopeCanvas && hasImageData) {
-      // Don't clear — just redraw graticule on top of existing scope
-      // (Worker result is preserved; graticule overwrites only its own lines)
+      const ctx = scopeCanvas.getContext('2d');
+      if (ctx) {
+        renderGraticule(ctx, {
+          scopeType: activeScopeType,
+          opacity: graticuleOpacity,
+          showRefLevels,
+          refLow,
+          refHigh,
+        });
+      }
     }
   });
 
@@ -225,6 +255,21 @@
   $effect(() => {
     const asset = editManager.currentAsset;
     if (asset) loadImageData(asset.id);
+  });
+
+  // Cleanup ScopeRenderer on component unmount
+  $effect(() => {
+    return () => {
+      if (scopeRenderer) {
+        scopeRenderer.destroy();
+        scopeRenderer = null;
+        scopeWorker = null;
+      }
+      if (scopeRafId !== null) {
+        cancelAnimationFrame(scopeRafId);
+        scopeRafId = null;
+      }
+    };
   });
 
   // Recompute scope when curves/endpoints change
@@ -253,7 +298,7 @@
 
   async function loadImageData(assetId: string) {
     try {
-      initWorker();
+      initScopeRenderer();
       const img = new Image();
       img.crossOrigin = 'anonymous';
       await new Promise<void>((resolve, reject) => {
@@ -458,92 +503,9 @@
     svgClickStart = null;
   }
 
-  // ══════════════════════════════════════════════════════════
-  // Scope rendering — dispatched to Web Worker (off main thread)
-  // Only graticule overlay runs on main thread (lightweight)
-  // ══════════════════════════════════════════════════════════
-
-  function renderScope() {
-    if (!hasImageData || !scopeWorker || !scopeCanvas) return;
-
-    // If worker is still processing, queue the update
-    if (workerBusy) { pendingRender = true; return; }
-
-    const c = developManager.curves;
-    const ep = developManager.curveEndpoints;
-    const masterLUT = lutCache.get(c.master, ep.master);
-    const redLUT = lutCache.get(c.red, ep.red);
-    const greenLUT = lutCache.get(c.green, ep.green);
-    const blueLUT = lutCache.get(c.blue, ep.blue);
-
-    // Copy LUT buffers (they're small — 256 bytes each)
-    const mBuf = masterLUT.slice().buffer;
-    const rBuf = redLUT.slice().buffer;
-    const gBuf = greenLUT.slice().buffer;
-    const bBuf = blueLUT.slice().buffer;
-
-    workerBusy = true;
-    scopeWorker.postMessage({
-      type: 'render',
-      scopeType: activeScopeType,
-      masterLUT: mBuf,
-      redLUT: rBuf,
-      greenLUT: gBuf,
-      blueLUT: bBuf,
-      canvasW: scopeCanvas.width,
-      canvasH: scopeCanvas.height,
-      brightness: scopeBrightness,
-      colorize: colorizeWaveform,
-      light: {
-        exposure: developManager.params.exposure,
-        highlights: developManager.params.highlights,
-        shadows: developManager.params.shadows,
-        whites: developManager.params.whites,
-        blacks: developManager.params.blacks,
-        brightness: developManager.params.brightness,
-        contrast: developManager.params.contrast,
-        saturation: developManager.params.saturation,
-        vibrance: developManager.params.vibrance,
-        clarity: developManager.params.clarity,
-        dehaze: developManager.params.dehaze,
-        fade: developManager.params.fade,
-        texture: developManager.params.texture,
-      },
-    }, [mBuf, rBuf, gBuf, bBuf]);
-  }
-
-  // ── Graticule overlay (lightweight, stays on main thread) ──
-  function drawGraticule(ctx: CanvasRenderingContext2D) {
-    if (!scopeCanvas) return;
-    const W = scopeCanvas.width, H = scopeCanvas.height;
-
-    if (activeScopeType === 'vectorscope') {
-      const cx = W / 2, cy = H / 2, radius = Math.min(cx, cy) - 8;
-      ctx.strokeStyle = `rgba(75, 85, 99, ${graticuleOpacity})`; ctx.lineWidth = 0.5;
-      ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx, cy - radius); ctx.lineTo(cx, cy + radius); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx - radius, cy); ctx.lineTo(cx + radius, cy); ctx.stroke();
-    } else {
-      ctx.strokeStyle = `rgba(75, 85, 99, ${graticuleOpacity})`; ctx.lineWidth = 0.5;
-      for (const frac of [0.25, 0.5, 0.75]) {
-        const lineY = H * (1 - frac);
-        ctx.beginPath(); ctx.moveTo(0, lineY); ctx.lineTo(W, lineY); ctx.stroke();
-      }
-      if (showRefLevels) {
-        const lowY = H * (1 - refLow / 255), highY = H * (1 - refHigh / 255);
-        ctx.strokeStyle = `rgba(59, 130, 246, ${graticuleOpacity * 0.8})`;
-        ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(0, lowY); ctx.lineTo(W, lowY); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(0, highY); ctx.lineTo(W, highY); ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.font = '9px sans-serif';
-        ctx.fillStyle = `rgba(59, 130, 246, ${Math.min(1, graticuleOpacity + 0.2)})`;
-        ctx.fillText(`${refLow}`, 3, lowY - 3);
-        ctx.fillText(`${refHigh}`, 3, highY + 11);
-      }
-    }
-  }
+  // ── Scope rendering now handled by ScopeRenderer (scope-renderer.ts)
+  // renderScope() logic moved to requestScopeUpdate() above
+  // drawGraticule() imported from scope-renderer.ts as renderGraticule()
 </script>
 
 <svelte:window
