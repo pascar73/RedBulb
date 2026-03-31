@@ -59,7 +59,7 @@ function linearOrderFromConnections(graph: NodeGraph): string[] {
 }
 
 function composeDevelopState(base: DevelopState, patch: DevelopState): DevelopState {
-  // v1: Last-writer-wins per field, but ONLY for active (non-zero) values
+  // v1: Last-writer-wins per field, but ONLY for active (non-zero/non-default) values
   // This implements "cumulative deltas" - only non-zero params affect the output
   
   function mergeNonZero<T extends Record<string, number>>(baseObj: T, patchObj: T): T {
@@ -80,6 +80,40 @@ function composeDevelopState(base: DevelopState, patch: DevelopState): DevelopSt
     };
   }
   
+  // Fix #1: HSL per-channel non-zero merge (prevents data loss)
+  function mergeHSL(baseHSL: Record<string, { h: number; s: number; l: number }>, patchHSL: Record<string, { h: number; s: number; l: number }>): Record<string, { h: number; s: number; l: number }> {
+    const result = { ...baseHSL };
+    for (const [color, values] of Object.entries(patchHSL)) {
+      const baseValues = result[color] || { h: 0, s: 0, l: 0 };
+      // Only merge if patch has active (non-zero) values
+      if (values.h !== 0 || values.s !== 0 || values.l !== 0) {
+        result[color] = {
+          h: values.h !== 0 ? values.h : baseValues.h,
+          s: values.s !== 0 ? values.s : baseValues.s,
+          l: values.l !== 0 ? values.l : baseValues.l,
+        };
+      }
+    }
+    return result;
+  }
+  
+  // Fix #2: Curve endpoint merge (checks for non-default values)
+  function mergeCurveEndpoints(
+    base: DevelopState['curveEndpoints'],
+    patch: DevelopState['curveEndpoints']
+  ): DevelopState['curveEndpoints'] {
+    const isDefaultEndpoint = (ep: { black: { x: number; y: number }; white: { x: number; y: number } }) => {
+      return ep.black.x === 0 && ep.black.y === 0 && ep.white.x === 1 && ep.white.y === 1;
+    };
+    
+    return {
+      master: isDefaultEndpoint(patch.master) ? base.master : patch.master,
+      red: isDefaultEndpoint(patch.red) ? base.red : patch.red,
+      green: isDefaultEndpoint(patch.green) ? base.green : patch.green,
+      blue: isDefaultEndpoint(patch.blue) ? base.blue : patch.blue,
+    };
+  }
+  
   return {
     version: 1,
     basic: mergeNonZero(base.basic, patch.basic),
@@ -93,12 +127,12 @@ function composeDevelopState(base: DevelopState, patch: DevelopState): DevelopSt
       green: patch.curves.green.length > 0 ? patch.curves.green : base.curves.green,
       blue: patch.curves.blue.length > 0 ? patch.curves.blue : base.curves.blue,
     },
-    curveEndpoints: base.curveEndpoints, // TODO: implement smart merge for endpoints
+    curveEndpoints: mergeCurveEndpoints(base.curveEndpoints, patch.curveEndpoints),
     colorWheels: {
       shadows: mergeColorWheel(base.colorWheels.shadows, patch.colorWheels.shadows),
       midtones: mergeColorWheel(base.colorWheels.midtones, patch.colorWheels.midtones),
       highlights: mergeColorWheel(base.colorWheels.highlights, patch.colorWheels.highlights),
     },
-    hsl: { ...base.hsl, ...patch.hsl }, // HSL is sparse, direct merge is fine
+    hsl: mergeHSL(base.hsl, patch.hsl),
   };
 }

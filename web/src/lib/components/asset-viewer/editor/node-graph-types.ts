@@ -5,7 +5,16 @@
  * Re-exports existing RedBulb types and adds evaluation-specific types.
  */
 
-// Re-export existing RedBulb types
+// Import types for local use
+import type {
+  DevelopState,
+  GeometryState,
+  CorrectorNode,
+  NodeConnection,
+  NodeGraphV2,
+} from './node-types';
+
+// Re-export for external use
 export type {
   DevelopState,
   GeometryState,

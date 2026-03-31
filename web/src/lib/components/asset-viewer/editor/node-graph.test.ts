@@ -1,6 +1,6 @@
 // node-graph.test.ts
 import { describe, it, expect } from 'vitest';
-import type { NodeGraph } from './node-graph-types';
+import type { NodeGraph, EvalOptions, EvalResult } from './node-graph-types';
 import type { DevelopState } from './node-types';
 import { createEmptyDevelopState, createDefaultGeometry } from './node-types';
 import { validateGraph } from './node-graph-validate';
@@ -216,5 +216,55 @@ describe('Node Graph v2 acceptance tests', () => {
     expect(restored.nodes.find((n) => n.id === 'N3')!.bypass).toBe(false);
     expect(undone.flattenedState.basic.exposure).toBe(0.8);
     expect(undone.evaluatedNodeIds).toEqual(['N1', 'N2', 'N3']);
+  });
+
+  it('11) HSL retained from earlier node when later node is default', () => {
+    const g = makeSerialGraph();
+    
+    // N1 sets red hue to 10
+    g.nodes[0].state.hsl = { red: { h: 10, s: 0, l: 0 } };
+    // N2 has default HSL (all zeros)
+    g.nodes[1].state.hsl = {};
+    // N3 has default HSL
+    g.nodes[2].state.hsl = {};
+    
+    const res = evaluateNodeGraph(g);
+    
+    // Red hue from N1 should be retained (not overwritten by N2/N3 defaults)
+    expect(res.flattenedState.hsl.red?.h).toBe(10);
+  });
+
+  it('12) Curve endpoint changes propagate', () => {
+    const g = makeSerialGraph();
+    
+    // N1 sets master black point
+    g.nodes[0].state.curveEndpoints = {
+      master: { black: { x: 0.1, y: 0.05 }, white: { x: 1, y: 1 } },
+      red: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+      green: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+      blue: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
+    };
+    
+    // N2 has default endpoints (should not overwrite N1)
+    // N3 has default endpoints
+    
+    const res = evaluateNodeGraph(g);
+    
+    // N1's master black point should be retained
+    expect(res.flattenedState.curveEndpoints.master.black.x).toBe(0.1);
+    expect(res.flattenedState.curveEndpoints.master.black.y).toBe(0.05);
+  });
+
+  it('13) Type-check: All types compile correctly', () => {
+    // This test ensures TypeScript compilation succeeds
+    // If there are type errors, the test file won't compile
+    const g = makeSerialGraph();
+    const opts: EvalOptions = { stopAtNodeId: 'N1', includeBypassed: false };
+    const result: EvalResult = evaluateNodeGraph(g, opts);
+    
+    // Type assertions
+    expect(typeof result.flattenedState).toBe('object');
+    expect(Array.isArray(result.evaluatedNodeIds)).toBe(true);
+    expect(Array.isArray(result.warnings)).toBe(true);
   });
 });
