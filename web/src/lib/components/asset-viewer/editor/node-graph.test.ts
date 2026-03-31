@@ -267,4 +267,64 @@ describe('Node Graph v2 acceptance tests', () => {
     expect(Array.isArray(result.evaluatedNodeIds)).toBe(true);
     expect(Array.isArray(result.warnings)).toBe(true);
   });
+
+  it('14) Earlier non-default effect survives later default node', () => {
+    const g = makeSerialGraph();
+    
+    // N1 sets vignetteMidpoint to 70 (non-default, default is 50)
+    g.nodes[0].state.effects = {
+      texture: 0,
+      vignette: 0,
+      vignetteMidpoint: 70,
+      vignetteRoundness: 0,
+      vignetteFeather: 50, // default
+      vignetteHighlights: 0,
+      grain: 0,
+      grainSize: 25, // default
+      grainRoughness: 50, // default
+      fade: 0,
+    };
+    
+    // N2 has default effects (vignetteMidpoint=50)
+    g.nodes[1].state.effects = {
+      texture: 0,
+      vignette: 0,
+      vignetteMidpoint: 50, // default
+      vignetteRoundness: 0,
+      vignetteFeather: 50,
+      vignetteHighlights: 0,
+      grain: 0,
+      grainSize: 25,
+      grainRoughness: 50,
+      fade: 0,
+    };
+    
+    const res = evaluateNodeGraph(g);
+    
+    // N1's vignetteMidpoint=70 should survive (not overwritten by N2's default 50)
+    expect(res.flattenedState.effects.vignetteMidpoint).toBe(70);
+  });
+
+  it('15) Disconnected node graph emits explicit warning', () => {
+    const g = makeSerialGraph();
+    
+    // Create a disconnected node (not on input→output chain)
+    const disconnectedNode = {
+      id: 'N_ORPHAN',
+      label: 'Orphan',
+      bypass: false,
+      position: { x: 500, y: 100 },
+      state: createEmptyDevelopState(),
+    };
+    g.nodes.push(disconnectedNode);
+    
+    // No edges connect N_ORPHAN to anything
+    
+    const validation = validateGraph(g);
+    
+    // Should emit warning (not error, since main chain is still valid)
+    expect(validation.warnings.length).toBeGreaterThan(0);
+    expect(validation.warnings.some(w => w.includes('N_ORPHAN'))).toBe(true);
+    expect(validation.warnings.some(w => w.includes('disconnected'))).toBe(true);
+  });
 });

@@ -114,13 +114,39 @@ function composeDevelopState(base: DevelopState, patch: DevelopState): DevelopSt
     };
   }
   
+  // Fix: Default-aware effects merge (handles non-zero defaults)
+  function mergeEffects(base: DevelopState['effects'], patch: DevelopState['effects']): DevelopState['effects'] {
+    const DEFAULTS = {
+      texture: 0,
+      vignette: 0,
+      vignetteMidpoint: 50,
+      vignetteRoundness: 0,
+      vignetteFeather: 50,
+      vignetteHighlights: 0,
+      grain: 0,
+      grainSize: 25,
+      grainRoughness: 50,
+      fade: 0,
+    };
+    
+    const result = { ...base };
+    for (const [key, value] of Object.entries(patch)) {
+      const defaultVal = DEFAULTS[key as keyof typeof DEFAULTS];
+      // Only merge if patch value differs from default
+      if (value !== defaultVal) {
+        (result as any)[key] = value;
+      }
+    }
+    return result;
+  }
+  
   return {
     version: 1,
     basic: mergeNonZero(base.basic, patch.basic),
     color: mergeNonZero(base.color, patch.color),
     toneMapper: patch.toneMapper !== 'none' ? patch.toneMapper : base.toneMapper,
     details: mergeNonZero(base.details, patch.details),
-    effects: mergeNonZero(base.effects, patch.effects),
+    effects: mergeEffects(base.effects, patch.effects),
     curves: {
       master: patch.curves.master.length > 0 ? patch.curves.master : base.curves.master,
       red: patch.curves.red.length > 0 ? patch.curves.red : base.curves.red,

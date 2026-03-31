@@ -77,5 +77,45 @@ export function validateGraph(graph: NodeGraph): GraphValidationResult {
     }
   }
 
+  // Disconnected node detection (all nodes must be on input→output chain)
+  const reachableFromInput = new Set<NodeId>();
+  const canReachOutput = new Set<NodeId>();
+  
+  // Forward traversal from input
+  function forwardDFS(from: NodeId | 'input') {
+    for (const e of graph.connections) {
+      if (e.from === from && e.to !== 'input' && e.to !== 'output') {
+        const toNode = e.to as NodeId;
+        if (!reachableFromInput.has(toNode)) {
+          reachableFromInput.add(toNode);
+          forwardDFS(toNode);
+        }
+      }
+    }
+  }
+  forwardDFS('input');
+  
+  // Backward traversal to output
+  function backwardDFS(to: NodeId | 'output') {
+    for (const e of graph.connections) {
+      if (e.to === to && e.from !== 'input' && e.from !== 'output') {
+        const fromNode = e.from as NodeId;
+        if (!canReachOutput.has(fromNode)) {
+          canReachOutput.add(fromNode);
+          backwardDFS(fromNode);
+        }
+      }
+    }
+  }
+  backwardDFS('output');
+  
+  // Node is connected if it's reachable from input AND can reach output
+  for (const id of nodeIds) {
+    const isConnected = reachableFromInput.has(id) && canReachOutput.has(id);
+    if (!isConnected) {
+      warnings.push(`Node ${id} is disconnected from main input→output chain.`);
+    }
+  }
+
   return { valid: errors.length === 0, errors, warnings };
 }
