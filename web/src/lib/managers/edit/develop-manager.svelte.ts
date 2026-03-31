@@ -177,7 +177,25 @@ class DevelopManager implements EditToolManager {
       channel => channel.h !== 0 || channel.s !== 0 || channel.l !== 0
     );
 
-    return hasParamChanges || hasCurveChanges || hasColorWheelChanges || hasHslChanges || hasEndpointChanges || hasGeoChanges;
+    // FIX: Also check if any node in the chain has changes (not just current panel)
+    // This ensures preview stays visible even when selecting an empty node
+    const hasNodeChainChanges = this._nodeGraph?.nodes.some(node => {
+      if (node.bypass) return false; // Bypassed nodes don't contribute
+      const s = node.state;
+      return (
+        s.basic.exposure !== 0 || s.basic.contrast !== 0 || s.basic.highlights !== 0 ||
+        s.basic.shadows !== 0 || s.basic.whites !== 0 || s.basic.blacks !== 0 ||
+        s.basic.brightness !== 0 || s.basic.saturation !== 0 || s.basic.temperature !== 0 ||
+        s.basic.sharpness !== 0 || s.basic.noiseReduction !== 0 || s.basic.clarity !== 0 ||
+        s.basic.dehaze !== 0 || s.basic.caCorrection !== 0 || s.basic.vibrance !== 0 ||
+        s.basic.tint !== 0 || s.toneMapper !== 'none' ||
+        s.curves.master.length > 0 || s.curves.red.length > 0 ||
+        s.curves.green.length > 0 || s.curves.blue.length > 0 ||
+        s.details.texture !== 0 || s.effects.vignette !== 0 || s.effects.grain !== 0 || s.effects.fade !== 0
+      );
+    }) ?? false;
+
+    return hasParamChanges || hasCurveChanges || hasColorWheelChanges || hasHslChanges || hasEndpointChanges || hasGeoChanges || hasNodeChainChanges;
   });
 
   canReset = $derived(this.hasChanges);

@@ -172,10 +172,10 @@
     const result: { d: string; active: boolean }[] = [];
     if (nodes.length === 0 || connections.length === 0) return result;
 
-    // FIX: IN/OUT at fixed world positions (left/right edges)
-    // IN at left edge (before first node), OUT at right edge (after last node)
-    const inW = { x: 0, y: canvasH / 2 };
-    const outW = { x: canvasW, y: canvasH / 2 };
+    // Convert IN/OUT screen positions to world space (accounts for pan/zoom)
+    // This ensures wires visually connect to the fixed overlay circles
+    const inW = screenToWorld(terminalScreen.in.x, terminalScreen.in.y);
+    const outW = screenToWorld(terminalScreen.out.x, terminalScreen.out.y);
 
     // Build node lookup map
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
@@ -246,12 +246,13 @@
       const dx = (ev.clientX - dragStartMouse.x) / zoom;
       const dy = (ev.clientY - dragStartMouse.y) / zoom;
       
-      // FIX #4: Dynamic drag bounds (not hard-coded), ensure positive coords for stable origin
-      const maxX = Math.max(3000, canvasW + 500); // Generous max, extends beyond current canvas
-      const maxY = Math.max(1500, canvasH + 500);
+      // FIX #4: Viewport-aware drag bounds - allow dragging within visible area
+      // Convert viewport edges to world coordinates to get true drag limits
+      const minWorldPos = screenToWorld(16, 16); // Small margin from viewport edge
+      const maxWorldPos = screenToWorld(viewportW - NODE_W - 16, viewportH - NODE_H - 16);
       
-      draggingNode.position.x = Math.max(SIDE_PAD, Math.min(maxX, dragStartPos.x + dx));
-      draggingNode.position.y = Math.max(TOP_PAD, Math.min(maxY, dragStartPos.y + dy));
+      draggingNode.position.x = Math.max(minWorldPos.x, Math.min(maxWorldPos.x, dragStartPos.x + dx));
+      draggingNode.position.y = Math.max(minWorldPos.y, Math.min(maxWorldPos.y, dragStartPos.y + dy));
     };
 
     const onUp = (ev: MouseEvent) => {
@@ -264,15 +265,15 @@
         // Drag completed → commit position with validation
         const draggedNode = nodes.find(n => n.id === draggingNodeId);
         if (draggedNode) {
-          // FIX #4: Dynamic bounds (viewport-aware)
-          const maxX = Math.max(3000, canvasW + 500);
-          const maxY = Math.max(1500, canvasH + 500);
+          // FIX #4: Viewport-aware drag bounds (same as drag move)
+          const minWorldPos = screenToWorld(16, 16);
+          const maxWorldPos = screenToWorld(viewportW - NODE_W - 16, viewportH - NODE_H - 16);
           
           const x = Number.isFinite(draggedNode.position.x) 
-            ? Math.max(SIDE_PAD, Math.min(maxX, draggedNode.position.x))
+            ? Math.max(minWorldPos.x, Math.min(maxWorldPos.x, draggedNode.position.x))
             : dragStartPos.x;
           const y = Number.isFinite(draggedNode.position.y)
-            ? Math.max(TOP_PAD, Math.min(maxY, draggedNode.position.y))
+            ? Math.max(minWorldPos.y, Math.min(maxWorldPos.y, draggedNode.position.y))
             : dragStartPos.y;
           
           // Commit final position (single authoritative write)

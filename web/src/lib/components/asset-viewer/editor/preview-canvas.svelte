@@ -137,6 +137,11 @@
   $effect(() => {
     // Track all params to trigger re-render
     const params = developManager.params;
+    
+    // FIX: Track node graph changes (including bypass toggles and node additions)
+    const nodeGraph = developManager.nodeGraph;
+    const _trackNodes = nodeGraph?.nodes.map(n => `${n.id}:${n.bypass}`).join(',') ?? '';
+    
     // Deep-read curves arrays so Svelte 5 tracks mutations
     const curves = developManager.curves;
     const _trackCurves = [
