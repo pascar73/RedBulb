@@ -244,6 +244,10 @@ class DevelopManager implements EditToolManager {
    * @returns Flattened DevelopState from evaluating active nodes
    */
   getEvaluatedState(opts?: EvalOptions): DevelopState {
+    // FIX: Commit current panel edits to selected node before evaluation
+    // This ensures preview/export always sees latest edits
+    this._saveCurrentToNode();
+    
     const graph = this.nodeGraph;
     
     if (!graph || graph.nodes.length === 0) {
