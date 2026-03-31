@@ -5,14 +5,17 @@
   import ScopeWorker from './scope-worker?worker';
 
   type Channel = 'master' | 'red' | 'green' | 'blue';
+  
+  // Fix 1: Stable point identity with unique IDs
+  type CurvePoint = { id: string; x: number; y: number };
+  let nextPointId = 0;
+  function generatePointId(): string {
+    return `cp_${Date.now()}_${nextPointId++}`;
+  }
 
   // ── UI state ──────────────────────────────────────────────
   let activeChannel = $state<Channel>('master');
-  let draggingIndex = $state<number | null>(null);
   let draggingEndpoint = $state<number | null>(null); // -1 = black, -2 = white
-  // Track SVG-level mousedown for clean click detection (no spurious CPs)
-  let svgMouseDownPos = $state<{ x: number; y: number } | null>(null);
-  let lastPointInteractionTime = 0; // timestamp of last point/endpoint mousedown
   let svgElement = $state<SVGSVGElement | undefined>(undefined);
   let scopeCanvas = $state<HTMLCanvasElement | undefined>(undefined);
 
@@ -111,14 +114,20 @@
   // ══════════════════════════════════════════════════════════
   // State accessors — read directly from developManager for
   // proper Svelte 5 fine-grained reactivity
+  // Fix 1: Migrate to ID-based points with backward compat
   // ══════════════════════════════════════════════════════════
 
-  function getPoints(): Array<{ x: number; y: number }> {
-    return developManager.curves[activeChannel];
+  function getPoints(): CurvePoint[] {
+    const stored = developManager.curves[activeChannel];
+    // Migrate old { x, y } points to { id, x, y } on read
+    return stored.map((pt: any) => 
+      pt.id ? pt : { id: generatePointId(), x: pt.x, y: pt.y }
+    );
   }
 
-  function setPoints(points: Array<{ x: number; y: number }>) {
-    developManager.curves[activeChannel] = points;
+  function setPoints(points: CurvePoint[]) {
+    // Store with IDs (backward compat maintained - old code ignores id field)
+    developManager.curves[activeChannel] = points as any;
   }
 
   function getEp() {
@@ -259,30 +268,33 @@
   // Interaction handlers
   // ══════════════════════════════════════════════════════════
 
-  // ── SVG mousedown: record position for click detection ──
+  // Fix 3: Deterministic add-point - explicit state tracking (no timing hacks)
+  let svgClickStart = $state<{ x: number; y: number; time: number } | null>(null);
+
+  // ── SVG mousedown: record click start ──
   function handleSvgMouseDown(event: MouseEvent) {
-    // If a point interaction just happened (<200ms ago), skip — this is bubbling from a CP
-    if (Date.now() - lastPointInteractionTime < 200) return;
-    svgMouseDownPos = { x: event.clientX, y: event.clientY };
+    // Ignore if already dragging something
+    if (draggingPointId !== null || draggingEndpoint !== null) return;
+    svgClickStart = { x: event.clientX, y: event.clientY, time: Date.now() };
   }
 
-  // ── SVG mouseup: only create a CP if this was a genuine click (no drag) ──
+  // ── SVG mouseup: deterministic point insertion on segment ──
   function handleSvgMouseUp(event: MouseEvent) {
-    // If a point/endpoint interaction happened recently, or we're still dragging, skip
-    if (Date.now() - lastPointInteractionTime < 200 || draggingIndex !== null || draggingEndpoint !== null) {
-      svgMouseDownPos = null;
+    // Ignore if we're dragging or no click was started
+    if (draggingPointId !== null || draggingEndpoint !== null || !svgClickStart) {
+      svgClickStart = null;
       return;
     }
-    // If no mousedown was recorded on the SVG background, skip
-    if (!svgMouseDownPos) return;
 
-    // Check if mouse barely moved (genuine click vs accidental drag)
-    const dx = event.clientX - svgMouseDownPos.x;
-    const dy = event.clientY - svgMouseDownPos.y;
-    svgMouseDownPos = null;
-    if (Math.sqrt(dx * dx + dy * dy) > 5) return; // moved too much — not a click
+    // Check if mouse barely moved (genuine click vs drag)
+    const dx = event.clientX - svgClickStart.x;
+    const dy = event.clientY - svgClickStart.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    svgClickStart = null;
+    
+    if (dist > 5) return; // Moved too much — user was trying to pan/drag, not click
 
-    // Now safely add a control point
+    // Add control point at click location
     if (!svgElement) return;
     const rect = svgElement.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width;
@@ -293,44 +305,53 @@
 
     // Check proximity to existing points (including endpoints)
     const ep = getEp();
-    const allPts = [{ x: ep.black.x, y: ep.black.y }, ...points, { x: ep.white.x, y: ep.white.y }];
+    const allPts = [{ x: ep.black.x, y: ep.black.y }, ...points.map(p => ({ x: p.x, y: p.y })), { x: ep.white.x, y: ep.white.y }];
     const tooClose = allPts.some(p => {
       const pdx = (p.x - x) * SVG_SIZE, pdy = (p.y - y) * SVG_SIZE;
       return Math.sqrt(pdx * pdx + pdy * pdy) < pointRadius * 2;
     });
     if (tooClose) return;
 
-    setPoints([...points, { x, y }].sort((a, b) => a.x - b.x));
+    // Insert point in sorted position (maintain x-order)
+    const newPoint: CurvePoint = { id: generatePointId(), x, y };
+    const insertIdx = points.findIndex(p => p.x > x);
+    const updated = insertIdx === -1 
+      ? [...points, newPoint] 
+      : [...points.slice(0, insertIdx), newPoint, ...points.slice(insertIdx)];
+    setPoints(updated);
   }
 
-  function handlePointMouseDown(index: number, e: MouseEvent) {
+  // Fix 2: Store point ID instead of index for stable drag reference
+  let draggingPointId = $state<string | null>(null);
+  
+  function handlePointMouseDown(pointId: string, e: MouseEvent) {
     e.stopPropagation(); e.preventDefault();
-    lastPointInteractionTime = Date.now();
-    draggingIndex = index;
+    draggingPointId = pointId;
+    svgClickStart = null; // Cancel any pending click
   }
 
-  function handlePointTouchStart(index: number, e: TouchEvent) {
+  function handlePointTouchStart(pointId: string, e: TouchEvent) {
     e.stopPropagation(); e.preventDefault();
-    lastPointInteractionTime = Date.now();
-    draggingIndex = index;
+    draggingPointId = pointId;
+    svgClickStart = null; // Cancel any pending click
   }
 
-  function handlePointDblClick(index: number, e: MouseEvent) {
+  function handlePointDblClick(pointId: string, e: MouseEvent) {
     e.stopPropagation(); e.preventDefault();
-    lastPointInteractionTime = Date.now();
-    draggingIndex = null;
-    setPoints(getPoints().filter((_, i) => i !== index));
+    draggingPointId = null;
+    svgClickStart = null;
+    setPoints(getPoints().filter(p => p.id !== pointId));
   }
 
   function handleEndpointDown(which: -1 | -2, e: MouseEvent | TouchEvent) {
     e.stopPropagation(); e.preventDefault();
-    lastPointInteractionTime = Date.now();
     draggingEndpoint = which;
+    svgClickStart = null; // Cancel any pending click
   }
 
   function handleEndpointDblClick(which: 'black' | 'white', e: MouseEvent) {
     e.stopPropagation(); e.preventDefault();
-    lastPointInteractionTime = Date.now();
+    svgClickStart = null;
     if (which === 'black') setEndpoint(activeChannel, 'black', 0, 0);
     else setEndpoint(activeChannel, 'white', 1, 1);
   }
@@ -373,38 +394,45 @@
       }
       return;
     }
-    if (draggingIndex === null) return;
+    if (draggingPointId === null) return;
 
-    const x = Math.max(0.01, Math.min(0.99, (clientX - rect.left) / rect.width));
-    const points = [...getPoints()];
-    points[draggingIndex] = { x, y };
-    // Don't sort during drag — prevents Svelte from recreating DOM elements
-    // which breaks the ongoing mousedown state. Sort on mouseup instead.
-    setPoints(points);
+    // Fix 2: Neighbor-clamped drag - keep points ordered during drag (no post-sort)
+    const points = getPoints();
+    const dragIdx = points.findIndex(p => p.id === draggingPointId);
+    if (dragIdx === -1) return;
+    
+    const rawX = (clientX - rect.left) / rect.width;
+    
+    // Clamp x between neighbors + epsilon to maintain order
+    const EPSILON = 0.001;
+    const prevX = dragIdx > 0 ? points[dragIdx - 1].x + EPSILON : 0.01;
+    const nextX = dragIdx < points.length - 1 ? points[dragIdx + 1].x - EPSILON : 0.99;
+    const clampedX = Math.max(prevX, Math.min(nextX, rawX));
+    
+    // Update point in-place (no reordering needed - neighbor clamps maintain order)
+    const updated = [...points];
+    updated[dragIdx] = { id: draggingPointId, x: clampedX, y };
+    setPoints(updated);
   }
 
   function handleMouseMove(e: MouseEvent) {
-    if (draggingIndex !== null || draggingEndpoint !== null) updateDragPosition(e.clientX, e.clientY);
+    if (draggingPointId !== null || draggingEndpoint !== null) updateDragPosition(e.clientX, e.clientY);
   }
   function handleTouchMove(e: TouchEvent) {
-    if ((draggingIndex !== null || draggingEndpoint !== null) && e.touches.length > 0) {
+    if ((draggingPointId !== null || draggingEndpoint !== null) && e.touches.length > 0) {
       e.preventDefault();
       updateDragPosition(e.touches[0].clientX, e.touches[0].clientY);
     }
   }
   function handleMouseUp() {
-    // Sort points on drag end (deferred from updateDragPosition to avoid DOM recreation mid-drag)
-    if (draggingIndex !== null) {
-      const points = [...getPoints()].sort((a, b) => a.x - b.x);
-      setPoints(points);
-    }
-    draggingIndex = null;
+    // Fix 2: No post-sort needed - neighbor clamps maintain order during drag
+    draggingPointId = null;
     draggingEndpoint = null;
   }
   function handleTouchEnd() {
-    draggingIndex = null;
+    draggingPointId = null;
     draggingEndpoint = null;
-    svgMouseDownPos = null;
+    svgClickStart = null;
   }
 
   // ══════════════════════════════════════════════════════════
@@ -634,17 +662,18 @@
       />
 
       <!-- Control points -->
-      {#each getPoints() as point, index (index)}
+      <!-- Fix 1: Key by point.id instead of index for stable identity -->
+      {#each getPoints() as point (point.id)}
         {@const svgX = point.x * SVG_SIZE}
         {@const svgY = (1 - point.y) * SVG_SIZE}
         <circle
           cx={svgX} cy={svgY} r={pointRadius}
           fill={channelColor(activeChannel)} stroke="#000" stroke-width={strokeScale * 1.5}
-          role="slider" aria-label="Control point {index + 1}"
+          role="slider" aria-label="Control point"
           class="cursor-move"
-          onmousedown={(e) => handlePointMouseDown(index, e)}
-          ontouchstart={(e) => handlePointTouchStart(index, e)}
-          ondblclick={(e) => handlePointDblClick(index, e)}
+          onmousedown={(e) => handlePointMouseDown(point.id, e)}
+          ontouchstart={(e) => handlePointTouchStart(point.id, e)}
+          ondblclick={(e) => handlePointDblClick(point.id, e)}
         />
       {/each}
     </svg>
