@@ -172,9 +172,10 @@
     const result: { d: string; active: boolean }[] = [];
     if (nodes.length === 0 || connections.length === 0) return result;
 
-    // Patch 2: Convert terminals from screen to world space
-    const inW = screenToWorld(terminalScreen.in.x, terminalScreen.in.y);
-    const outW = screenToWorld(terminalScreen.out.x, terminalScreen.out.y);
+    // FIX: IN/OUT at fixed world positions (left/right edges)
+    // IN at left edge (before first node), OUT at right edge (after last node)
+    const inW = { x: 0, y: canvasH / 2 };
+    const outW = { x: canvasW, y: canvasH / 2 };
 
     // Build node lookup map
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
