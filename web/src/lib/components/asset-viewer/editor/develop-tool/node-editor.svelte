@@ -14,6 +14,33 @@
   const selectedId = $derived(developManager.selectedNodeId);
   const connections = $derived(developManager.nodeGraph?.connections ?? []);
 
+  // FIX #5: Normalize node positions to ensure all are positive (for stable origin)
+  $effect(() => {
+    if (nodes.length === 0) return;
+    let needsNormalization = false;
+    for (const node of nodes) {
+      if (node.position.x < 0 || node.position.y < 0) {
+        needsNormalization = true;
+        break;
+      }
+    }
+    if (needsNormalization) {
+      // Find minimum coordinates
+      let minX = 0, minY = 0;
+      for (const node of nodes) {
+        minX = Math.min(minX, node.position.x);
+        minY = Math.min(minY, node.position.y);
+      }
+      // Offset all nodes to make minimum SIDE_PAD/TOP_PAD
+      const offsetX = SIDE_PAD - minX;
+      const offsetY = TOP_PAD - minY;
+      for (const node of nodes) {
+        node.position.x += offsetX;
+        node.position.y += offsetY;
+      }
+    }
+  });
+
   // ── Viewport ──
   let canvasEl = $state<HTMLDivElement | undefined>(undefined);
   let viewportW = $state(400);
@@ -34,6 +61,7 @@
   const PAD_T = 32;
   const PAD_B = 40;
 
+  // FIX #1/#4/#5: Stable world origin (always 0,0) - prevents visual rebasing during drag
   const worldBounds = $derived.by(() => {
     if (nodes.length === 0) {
       return { minX: 0, minY: 0, maxX: 400, maxY: 180 };
@@ -48,16 +76,17 @@
       maxY = Math.max(maxY, p.y + NODE_H);
     }
 
+    // Always use 0,0 origin (stable), calculate extent from rightmost/bottommost nodes
     return {
-      minX: minX - PAD_L,
-      minY: minY - PAD_T,
-      maxX: maxX + PAD_R,
-      maxY: maxY + PAD_B,
+      minX: 0,
+      minY: 0,
+      maxX: Math.max(400, maxX + PAD_R),
+      maxY: Math.max(180, maxY + PAD_B),
     };
   });
 
-  const canvasW = $derived(Math.max(400, worldBounds.maxX - worldBounds.minX));
-  const canvasH = $derived(Math.max(180, worldBounds.maxY - worldBounds.minY));
+  const canvasW = $derived(worldBounds.maxX - worldBounds.minX);
+  const canvasH = $derived(worldBounds.maxY - worldBounds.minY);
 
   // ── Zoom & Pan ──
   let userZoom = $state<number | null>(null);
@@ -216,9 +245,12 @@
       const dx = (ev.clientX - dragStartMouse.x) / zoom;
       const dy = (ev.clientY - dragStartMouse.y) / zoom;
       
-      // Update position directly on node (Fix C: clamp with TOP_PAD)
-      draggingNode.position.x = Math.max(SIDE_PAD, Math.min(3000, dragStartPos.x + dx));
-      draggingNode.position.y = Math.max(TOP_PAD, Math.min(1500, dragStartPos.y + dy));
+      // FIX #4: Dynamic drag bounds (not hard-coded), ensure positive coords for stable origin
+      const maxX = Math.max(3000, canvasW + 500); // Generous max, extends beyond current canvas
+      const maxY = Math.max(1500, canvasH + 500);
+      
+      draggingNode.position.x = Math.max(SIDE_PAD, Math.min(maxX, dragStartPos.x + dx));
+      draggingNode.position.y = Math.max(TOP_PAD, Math.min(maxY, dragStartPos.y + dy));
     };
 
     const onUp = (ev: MouseEvent) => {
@@ -231,12 +263,15 @@
         // Drag completed → commit position with validation
         const draggedNode = nodes.find(n => n.id === draggingNodeId);
         if (draggedNode) {
-          // Validate and clamp coordinates (prevent NaN/Infinity, enforce bounds with padding)
+          // FIX #4: Dynamic bounds (viewport-aware)
+          const maxX = Math.max(3000, canvasW + 500);
+          const maxY = Math.max(1500, canvasH + 500);
+          
           const x = Number.isFinite(draggedNode.position.x) 
-            ? Math.max(SIDE_PAD, Math.min(3000, draggedNode.position.x))
+            ? Math.max(SIDE_PAD, Math.min(maxX, draggedNode.position.x))
             : dragStartPos.x;
           const y = Number.isFinite(draggedNode.position.y)
-            ? Math.max(TOP_PAD, Math.min(1500, draggedNode.position.y))
+            ? Math.max(TOP_PAD, Math.min(maxY, draggedNode.position.y))
             : dragStartPos.y;
           
           // Commit final position (single authoritative write)
@@ -375,11 +410,11 @@
   </svg>
 
   <!-- SVG canvas (zoomable/pannable) -->
-  <!-- Patch 1: ViewBox starts at worldBounds origin to prevent clipping -->
+  <!-- FIX #5: Stable viewBox origin (always 0,0) - prevents visual rebasing when nodes move -->
   <svg
     width={canvasW}
     height={canvasH}
-    viewBox="{worldBounds.minX} {worldBounds.minY} {canvasW} {canvasH}"
+    viewBox="0 0 {canvasW} {canvasH}"
     style="transform: translate({translateX}px, {translateY}px) scale({zoom}); transform-origin: 0 0;"
     class="node-svg"
   >
