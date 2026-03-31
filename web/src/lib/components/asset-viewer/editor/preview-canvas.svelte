@@ -13,6 +13,10 @@
   let { imageUrl, width, height }: Props = $props();
   let canvas = $state<HTMLCanvasElement | undefined>(undefined);
   let isProcessing = $state(false);
+  
+  // FIX #6: Preview mode toggle (Full Chain vs Selected Node Only)
+  // Default: Full Chain (user expects to see final result)
+  let previewMode = $state<'full' | 'selected'>('full');
 
   // Follow the zoom transform applied by @zoom-image/core to the <img> element
   const zoomTransform = $derived.by(() => {
@@ -230,8 +234,9 @@
       origH = newH;
 
       // Fresh foundation: Use evaluated state from node graph
+      // FIX #6: Respect preview mode (full chain vs selected node)
       const evalState = developManager.getEvaluatedState({ 
-        stopAtNodeId: developManager.selectedNodeId || undefined 
+        stopAtNodeId: previewMode === 'selected' ? (developManager.selectedNodeId || undefined) : undefined
       });
       
       // Flatten for easier access (matching old params structure)
@@ -454,6 +459,17 @@
 
 <!-- Clip boundary — must NOT have a CSS transform for overflow clipping to work -->
 <div class="absolute inset-0 w-full h-full pointer-events-none overflow-hidden">
+  <!-- FIX #6: Preview mode toggle -->
+  <div class="preview-mode-toggle pointer-events-auto" style="position: absolute; top: 8px; left: 8px; z-index: 10;">
+    <button 
+      onclick={() => previewMode = previewMode === 'full' ? 'selected' : 'full'}
+      title={previewMode === 'full' ? 'Switch to Selected Node Preview' : 'Switch to Full Chain Preview'}
+      style="padding: 4px 8px; font-size: 11px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2); color: #ccc; border-radius: 3px; cursor: pointer;"
+    >
+      {previewMode === 'full' ? '⛓ Full Chain' : '◉ Selected Node'}
+    </button>
+  </div>
+  
   <!-- Zoom wrapper — mirrors the <img> zoom transform -->
   <div class="absolute inset-0 w-full h-full" style={zoomTransform}>
     <canvas
