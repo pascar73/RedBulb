@@ -59,77 +59,65 @@ This test system ensures that client-side preview and server-side export produce
 
 ## Components
 
-### 1. parity-test-framework.ts
+### 1. parity-test-framework.ts ✅
 Core framework with:
-- `ParityTest` types
-- `runParityTest()` - Run single test
-- `runParityTests()` - Run test suite
-- `compareImages()` - Pixel-level comparison
-- `hashImage()` - SHA-256 hashing
+- `ParityTest` types ✅
+- `runParityTest()` - Run single test ✅
+- `runParityTests()` - Run test suite ✅
+- `compareImages()` - Pixel-level comparison with sharp + pixelmatch ✅
+- `hashImage()` - SHA-256 hashing ✅
+- `renderClientPreview()` - Minimal stub (JPEG re-encode) 🟡
+- `renderServerExport()` - Minimal stub (JPEG re-encode) 🟡
 
-### 2. test-suite.ts
+### 2. test-suite.ts ✅
 Test definitions:
-- `coreTests` - Must pass before deploy (5 tests currently)
-- `extendedTests` - Comprehensive coverage (TODO)
+- `coreTests` - 5 tests defined ✅
+- `extendedTests` - Comprehensive coverage (TODO Week 2)
 
-### 3. golden-images/
-Reference outputs (generated once, stored permanently)
-- One per test case
-- SHA-256 hash stored in test definition
-- Used for visual comparison
+### 3. golden-images/ ⏳
+Reference outputs (to be generated Week 2)
+- Directory structure ready
+- Generation script pending
+- Will store one image per test case with SHA-256 hash
 
-### 4. test-data/
-Input images for testing
-- JPEG test images (to start)
-- RAW files (Phase 2)
+### 4. test-data/ ✅
+Input images for testing:
+- 3 JPEG images (landscape, portrait, noisy) ✅
+- 3 RAW files (Nikon NEF, Canon CR2, Sony ARW) ✅
+- All with SHA-256 checksums in MANIFEST.md ✅
 
 ## Usage
 
-### Generate Golden Images (First Time)
+### Generate Golden Images (Week 2)
 
 ```bash
 cd tests/parity
-npm run generate-golden-images
+npm run generate-golden-images  # Script not yet implemented
 ```
 
-This will:
-1. Render each test case with server engine (authoritative)
-2. Save output to `golden-images/`
-3. Calculate SHA-256 hash
-4. Update test definitions with hashes
+**Status:** TODO - Will be implemented in Week 2 after real render engines are ready.
 
-### Run Parity Tests
+### Run Parity Tests (Week 2)
 
 ```bash
 cd tests/parity
 npm run test:parity
 ```
 
-This will:
-1. Run all tests in current suite
-2. Compare client vs server output
-3. Generate report (pass/fail)
-4. Save diff images (if failures)
-5. Exit with code 0 (pass) or 1 (fail)
+**Status:** Runnable with current stubs, but only tests JPEG re-encoding (no adjustments yet).  
+**Week 2:** Will test full render pipeline with node graph adjustments.
 
-### CI Integration
+### CI Integration ✅
 
-```yaml
-# .github/workflows/parity.yml
-name: Parity Tests
-on: [push, pull_request]
-jobs:
-  parity:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-      - name: Install deps
-        run: npm install
-      - name: Run parity tests
-        run: npm run test:parity
-```
+**Status:** Workflow file committed (`.github/workflows/parity-tests.yml`).
+
+**Triggers:** Push to `main` or `phase-*` branches, PRs to `main`.
+
+**Blocks merge on:** Parity test failure (exit code 1).
+
+**Uploads:** Test reports and diff heatmaps as artifacts.
+
+**Evidence pending:** Actual CI run demonstration (red → green) required for gate approval.
 
 ## Test Definitions
 
@@ -202,22 +190,22 @@ Parity Gate Passing =
 
 ## Implementation Notes
 
-### Phase 1 Week 1 Focus:
+### Phase 1 Week 1 Status:
 
-1. Build parity infrastructure (this)
-2. Implement `compareImages()` with actual image library
-3. Implement `renderClientPreview()` (JavaScript pipeline)
-4. Implement `renderServerExport()` (RapidRaw pipeline)
-5. Generate golden images
-6. CI integration
+1. ✅ Build parity infrastructure
+2. ✅ Implement `compareImages()` with sharp + pixelmatch
+3. 🟡 Implement `renderClientPreview()` - minimal stub (JPEG re-encode only)
+4. 🟡 Implement `renderServerExport()` - minimal stub (JPEG re-encode only)
+5. ⏳ Generate golden images (Week 2)
+6. ✅ CI integration (.github/workflows/parity-tests.yml committed)
 
-### Not Implemented Yet:
+### Week 2 Implementation Plan:
 
-- [ ] Actual image comparison (currently placeholder)
-- [ ] Client render engine
-- [ ] Server render engine
+- [ ] Real client render engine (apply node graph adjustments)
+- [ ] Real server render engine (high-quality pipeline with RapidRaw)
 - [ ] Golden image generation script
-- [ ] CI workflow file
+- [ ] Execute end-to-end parity tests
+- [ ] Grain seed deterministic implementation
 
 ## Review Gates
 
@@ -233,16 +221,17 @@ Tag @Lantana for review of:
 - Parity validation evidence
 - Ready for Phase 2
 
-## Questions for @Lantana
+## Gate Requirements (from @Lantana)
 
-1. Is 1% tolerance acceptable for JPEG tests?
-2. Should we require pixel-perfect for operations like exposure (no compression artifacts)?
-3. Do we need performance benchmarks as part of parity gate?
-4. Any additional test cases to add to core suite?
+1. ✅ 1% tolerance acceptable for JPEG tests (standard operations)
+2. ✅ Neutral test requires 0.001% (near pixel-perfect)
+3. ✅ No threshold stacking (each test uses single threshold)
+4. ✅ Grain seed must be deterministic (policy defined, implementation Week 2)
+5. ⏳ CI must block bad parity (demonstration pending)
 
 ---
 
-**Status:** Framework complete, implementation in progress  
-**Last Updated:** 2026-03-31  
+**Status:** Week 1 infrastructure complete, awaiting gate approval  
+**Last Updated:** 2026-04-01  
 **Maintainer:** Cassia 🦐  
 **Oversight:** Lantana 🌿
