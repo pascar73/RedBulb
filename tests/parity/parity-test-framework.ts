@@ -14,10 +14,42 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import type { NodeGraph, DevelopState } from '../../web/src/lib/components/asset-viewer/editor/node-types';
 
 // ============================================================================
-// Types
+// Types (Self-contained for parity tests)
+// ============================================================================
+
+/** Node graph structure for testing (permissive for compatibility) */
+export interface NodeGraph {
+  version: number;
+  nodes: Array<{
+    id: string;
+    label?: string;
+    bypass?: boolean;
+    position?: { x: number; y: number };
+    state: any; // Simplified for parity testing
+    [key: string]: any; // Allow additional properties
+  }>;
+  connections?: Array<{
+    from: string;
+    to: string;
+  }>;
+  selectedNodeId?: string;
+  [key: string]: any; // Allow additional properties for extensibility
+}
+
+/** Develop state (simplified for testing) */
+export interface DevelopState {
+  version: number;
+  basic: Record<string, number>;
+  color?: Record<string, any>;
+  toneMapper?: string;
+  details?: Record<string, any>;
+  effects?: Record<string, any>;
+}
+
+// ============================================================================
+// Test Input/Output Types
 // ============================================================================
 
 export interface ParityTestInput {
@@ -135,13 +167,13 @@ export async function compareImages(
   const width = metaA.width!;
   const height = metaA.height!;
   
-  // Get raw pixel data
+  // Get raw pixel data - ensure RGBA format
   const [rawA, rawB] = await Promise.all([
-    sharp(imageA).raw().toBuffer(),
-    sharp(imageB).raw().toBuffer(),
+    sharp(imageA).ensureAlpha().raw().toBuffer(),
+    sharp(imageB).ensureAlpha().raw().toBuffer(),
   ]);
   
-  // Create PNG objects for pixelmatch
+  // Create PNG objects for pixelmatch (RGBA format)
   const pngA = new PNG({ width, height });
   const pngB = new PNG({ width, height });
   pngA.data = rawA;
@@ -175,8 +207,8 @@ export async function compareImages(
     await fs.promises.mkdir(path.dirname(diffImagePath), { recursive: true });
     const stream = fs.createWriteStream(diffImagePath);
     diff.pack().pipe(stream);
-    await new Promise((resolve, reject) => {
-      stream.on('finish', resolve);
+    await new Promise<void>((resolve, reject) => {
+      stream.on('finish', () => resolve());
       stream.on('error', reject);
     });
     savedDiffPath = diffImagePath;
@@ -218,15 +250,25 @@ export async function renderClientPreview(
 ): Promise<Buffer> {
   const sharp = require('sharp');
   
-  // For now: just load image and re-encode as JPEG
-  // This allows parity tests to run and compare outputs
-  // Real implementation will apply node graph adjustments
-  const image = sharp(source);
-  
-  // Re-encode as JPEG with consistent quality
-  return await image
-    .jpeg({ quality: 90, chromaSubsampling: '4:4:4' })
-    .toBuffer();
+  try {
+    // For now: just load image and re-encode as JPEG
+    // This allows parity tests to run and compare outputs
+    // Real implementation will apply node graph adjustments
+    const image = sharp(source);
+    
+    // Get metadata for debugging
+    const meta = await image.metadata();
+    console.log(`  Client render: ${meta.width}x${meta.height}`);
+    
+    // Re-encode as JPEG with consistent quality, removing EXIF to avoid orientation issues
+    return await image
+      .rotate() // Auto-rotate based on EXIF
+      .jpeg({ quality: 90, chromaSubsampling: '4:4:4' })
+      .toBuffer();
+  } catch (error) {
+    console.error(`  Client render error: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
+  }
 }
 
 /**
@@ -239,15 +281,25 @@ export async function renderServerExport(
 ): Promise<Buffer> {
   const sharp = require('sharp');
   
-  // For now: just load image and re-encode as JPEG
-  // This allows parity tests to run and compare outputs
-  // Real implementation will use high-quality pipeline (RapidRaw, etc.)
-  const image = sharp(source);
-  
-  // Re-encode as JPEG with same settings as client (for parity)
-  return await image
-    .jpeg({ quality: 90, chromaSubsampling: '4:4:4' })
-    .toBuffer();
+  try {
+    // For now: just load image and re-encode as JPEG
+    // This allows parity tests to run and compare outputs
+    // Real implementation will use high-quality pipeline (RapidRaw, etc.)
+    const image = sharp(source);
+    
+    // Get metadata for debugging
+    const meta = await image.metadata();
+    console.log(`  Server render: ${meta.width}x${meta.height}`);
+    
+    // Re-encode as JPEG with same settings as client (for parity), removing EXIF
+    return await image
+      .rotate() // Auto-rotate based on EXIF
+      .jpeg({ quality: 90, chromaSubsampling: '4:4:4' })
+      .toBuffer();
+  } catch (error) {
+    console.error(`  Server render error: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
+  }
 }
 
 // ============================================================================
@@ -274,7 +326,7 @@ export async function runParityTest(test: ParityTest): Promise<ParityTestResult>
   const serverOutput = await renderServerExport(sourcePath, test.input.nodeGraph);
   const serverMs = Date.now() - serverStart;
   const serverHash = hashImage(serverOutput);
-  
+
   // Compare (generate heatmap on failure)
   const reportsPath = path.join(__dirname, 'reports', 'diffs');
   const diffImagePath = path.join(reportsPath, `${test.input.name}-diff.png`);
