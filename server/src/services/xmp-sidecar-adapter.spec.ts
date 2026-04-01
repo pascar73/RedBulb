@@ -30,12 +30,14 @@ describe('XMP Sidecar Adapter', () => {
       expect(result.hasRedbulbData).toBe(false);
     });
 
-    it('should handle missing fields gracefully', async () => {
+    it('should handle Darktable XMP (v1: read-only, no crs: mapping)', async () => {
       const filePath = path.join(FIXTURES_DIR, 'darktable-sample.xmp');
       const result = await readXMP(filePath);
 
-      // Darktable uses different format, so crs: fields won't exist
+      // Darktable v1 contract: READ-ONLY, no crs: field mapping
       expect(result.data.exposure).toBeUndefined();
+      expect(result.data.contrast).toBeUndefined();
+      expect(result.data.temperature).toBeUndefined();
       expect(result.hasRedbulbData).toBe(false);
     });
   });
@@ -72,11 +74,11 @@ describe('XMP Sidecar Adapter', () => {
       expect(result.data.vibrance).toBe(30);
       expect(result.redbulbNodeGraph).toBe('test-node-graph-base64');
 
-      // Verify unknown tags preserved
+      // Verify unknown fields preserved (semantic, not byte-for-byte document)
       const updatedContent = await fs.readFile(TEMP_TEST_FILE, 'utf-8');
       const updatedLines = updatedContent.split('\n').length;
 
-      // Line count should be similar (within ±5 for namespace additions)
+      // Line count should be similar (within ±5 for namespace/attribute additions)
       expect(Math.abs(updatedLines - originalLines)).toBeLessThan(5);
 
       // Check that unknown Lightroom fields still exist
@@ -151,8 +153,31 @@ describe('XMP Sidecar Adapter', () => {
     });
   });
 
-  describe('data preservation (byte-for-byte where possible)', () => {
-    it('should preserve exact formatting of unmapped attributes', async () => {
+  describe('XML escaping safety', () => {
+    it('should safely encode node graph with special characters', async () => {
+      const sourcePath = path.join(FIXTURES_DIR, 'lightroom-sample.xmp');
+      await fs.copyFile(sourcePath, TEMP_TEST_FILE);
+
+      // Node graph with XML-unsafe characters
+      const unsafeNodeGraph = 'data with "quotes" & <tags> and \'apostrophes\'';
+      
+      await updateXMP(TEMP_TEST_FILE, {}, unsafeNodeGraph);
+
+      // Should read back correctly (unescaped)
+      const result = await readXMP(TEMP_TEST_FILE);
+      expect(result.redbulbNodeGraph).toBe(unsafeNodeGraph);
+
+      // Verify it's properly escaped in raw XML
+      const content = await fs.readFile(TEMP_TEST_FILE, 'utf-8');
+      expect(content).toContain('&quot;');
+      expect(content).toContain('&amp;');
+      expect(content).toContain('&lt;');
+      expect(content).toContain('&gt;');
+    });
+  });
+
+  describe('semantic field preservation', () => {
+    it('should preserve unmapped field values unchanged', async () => {
       const sourcePath = path.join(FIXTURES_DIR, 'lightroom-sample.xmp');
       await fs.copyFile(sourcePath, TEMP_TEST_FILE);
 
@@ -169,7 +194,7 @@ describe('XMP Sidecar Adapter', () => {
       const updatedContent = await fs.readFile(TEMP_TEST_FILE, 'utf-8');
       const updatedSharpnessMatch = updatedContent.match(/crs:Sharpness="([^"]+)"/);
       
-      // Unmapped attribute should be byte-for-byte identical
+      // Unmapped field value should be preserved unchanged (semantic preservation)
       expect(updatedSharpnessMatch![1]).toBe(originalSharpness);
     });
   });

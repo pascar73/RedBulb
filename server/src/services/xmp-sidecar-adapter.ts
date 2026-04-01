@@ -2,17 +2,17 @@
  * XMP Sidecar Adapter
  * 
  * Targeted adapter for reading/writing XMP sidecar files.
- * Preserves unknown tags by using surgical string replacements
- * instead of full XML parse/rebuild.
+ * Preserves unknown fields semantically by using surgical string replacements
+ * instead of full XML parse/rebuild. Values are preserved unchanged; formatting
+ * may be altered when adding new attributes.
  * 
  * Supports:
- * - Adobe Lightroom (crs: namespace)
- * - Darktable (darktable: namespace)
- * - RedBulb custom namespace
+ * - Adobe Lightroom (crs: namespace) - FULL SUPPORT
+ * - Darktable (darktable: namespace) - v1: READ-ONLY (no write mapping)
+ * - RedBulb custom namespace (redbulb:)
  */
 
 import fs from 'node:fs/promises';
-import path from 'node:path';
 
 export interface XMPEditData {
   exposure: number;      // -5.0 to +5.0
@@ -31,6 +31,30 @@ export interface XMPReadResult {
 
 const CRS_NAMESPACE = 'xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"';
 const REDBULB_NAMESPACE = 'xmlns:redbulb="http://redbulb.io/xmp/1.0/"';
+
+/**
+ * XML-escape attribute values to prevent breaking XMP structure
+ */
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * XML-unescape attribute values when reading
+ */
+function xmlUnescape(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
 
 /**
  * Read XMP file and extract mapped fields
@@ -74,10 +98,10 @@ export async function readXMP(filePath: string): Promise<XMPReadResult> {
     result.data.vibrance = parseFloat(vibranceMatch[1]);
   }
 
-  // Extract RedBulb node graph if present
+  // Extract RedBulb node graph if present (unescape XML entities)
   const nodeGraphMatch = content.match(/redbulb:nodeGraph="([^"]+)"/);
   if (nodeGraphMatch) {
-    result.redbulbNodeGraph = nodeGraphMatch[1];
+    result.redbulbNodeGraph = xmlUnescape(nodeGraphMatch[1]);
   }
 
   return result;
@@ -142,18 +166,20 @@ export async function updateXMP(
 /**
  * Update existing attribute or add new one
  * Preserves original formatting and position
+ * Values are XML-escaped to prevent breaking XMP structure
  */
 function updateOrAddAttribute(content: string, attrName: string, value: string): string {
+  const escapedValue = xmlEscape(value);
   const pattern = new RegExp(`${attrName}="[^"]*"`);
   
   if (pattern.test(content)) {
     // Update existing attribute
-    return content.replace(pattern, `${attrName}="${value}"`);
+    return content.replace(pattern, `${attrName}="${escapedValue}"`);
   } else {
     // Add new attribute after first rdf:Description tag
     return content.replace(
       /(<rdf:Description[^>]*)/,
-      `$1\n      ${attrName}="${value}"`
+      `$1\n      ${attrName}="${escapedValue}"`
     );
   }
 }
