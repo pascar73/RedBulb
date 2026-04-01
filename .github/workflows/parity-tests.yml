@@ -36,7 +36,7 @@ jobs:
       
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: parity-test-report
           path: tests/parity/reports/
@@ -44,7 +44,7 @@ jobs:
       
       - name: Upload diff images
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: parity-diff-images
           path: tests/parity/reports/diffs/
