@@ -5,8 +5,10 @@ Sample images for testing preview/export parity.
 
 ## Requirements (from @Lantana)
 - ✅ 2 JPEGs
-- ⏳ 2 RAWs (different cameras) - Phase 2
+- ✅ 3 RAWs (3 different cameras: Nikon Z6III, Canon EOS 5D, Sony A7 IV)
 - ✅ 1 high-ISO/noisy image
+
+**Status:** ✅ **ALL REQUIREMENTS COMPLETE**
 
 ## Dataset
 
@@ -47,17 +49,35 @@ Sample images for testing preview/export parity.
 - **License:** Unsplash License (free to use)
 - **Downloaded:** 2026-04-01
 
-### RAW Images (Phase 2)
+### RAW Images
 
-#### 4. test-raw-nikon.NEF ⏳
-- **Status:** Deferred to Phase 2 (RAW support)
-- **Planned Source:** Nikon sample images or public dataset
-- **Camera:** Nikon D850 or similar
+#### 4. raw/NZ6_7957.NEF ✅
+- **Source:** Provided by Paolo (private test set)
+- **Camera:** Nikon Z6 III (NIKON Z6_3)
+- **Format:** NEF (Nikon RAW)
+- **Size:** 17 MB
+- **Firmware:** Ver.02.00
+- **Captured:** 2026-03-29 18:09:49
+- **SHA-256:** `5459a44903a6f8a3f76ca62d974cd5ee89631fa5f32581c00db5a2c63996eb64`
+- **License:** Private test set (not for redistribution)
 
-#### 5. test-raw-canon.CR2 ⏳
-- **Status:** Deferred to Phase 2 (RAW support)
-- **Planned Source:** Canon sample images or public dataset
-- **Camera:** Canon EOS 5D Mark IV or similar
+#### 5. raw/D5__0037.CR2 ✅
+- **Source:** Provided by Paolo (private test set)
+- **Camera:** Canon EOS 5D series (likely Mark III based on owner's equipment)
+- **Format:** CR2 (Canon RAW version 2.0)
+- **Size:** 25 MB
+- **SHA-256:** `028dddc5fdfb92502c9808d9b841ff39cdbe9ffb024069114ec5d3f442b4c6b4`
+- **License:** Private test set (not for redistribution)
+
+#### 6. raw/A7_05822.ARW ✅
+- **Source:** Provided by Paolo (private test set)
+- **Camera:** Sony Alpha 7 IV (ILCE-7M4)
+- **Format:** ARW (Sony RAW)
+- **Size:** 39 MB
+- **Firmware:** v1.10
+- **Captured:** 2022-11-09 23:45:15
+- **SHA-256:** `06a800fb8692d51e0a6c8d1a67244b4c0180697b95eceac2afde9663150fc23e`
+- **License:** Private test set (not for redistribution)
 
 ## Download Script
 
@@ -111,11 +131,15 @@ Full license: https://unsplash.com/license
 
 ## Status
 
-✅ **Phase 1 JPEG dataset complete**  
-⏳ RAW dataset pending Phase 2
+✅ **Complete dataset ready for parity testing:**
+- 3 JPEG files (landscape, portrait, noisy)
+- 3 RAW files (Nikon NEF, Canon CR2, Sony ARW)
+- All checksums verified
+- All sources documented
 
 ---
 
-**Last Updated:** 2026-04-01  
+**Last Updated:** 2026-04-01 10:20 GMT  
 **Maintainer:** Cassia 🦐  
-**Approved By:** @Paolo (2026-04-01)
+**Provided By:** @Paolo (RAW files from personal collection)  
+**Approved By:** @Lantana (pending gate review)

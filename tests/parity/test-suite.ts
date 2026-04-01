@@ -18,7 +18,7 @@ export const coreTests: ParityTest[] = [
   createNeutralTest(
     'neutral-base',
     'test-image-01.jpg',
-    0.01 // 1% tolerance
+    0.00001 // 0.001% tolerance - strict per @Lantana (neutral should be pixel-identical)
   ),
   
   // Test 2: Exposure adjustment

@@ -64,20 +64,28 @@ diff_percentage = pixels_different / total_pixels
    - **Implementation:** Seed = hash(image_path + node_id + grain_params)
    - **Acceptable difference:** < 0.5% (seed ensures identical noise pattern)
    - **If seed control not implemented:** Test will fail (no exception)
+   - **Exception ONLY valid after:** Seed implementation is tested and passing
 
 2. **Tone Mapping:** Complex non-linear transforms
    - Acceptable: 5% (visual similarity more important than pixel-perfect)
+   - Must document rationale for any test using relaxed threshold
 
-3. **Multi-Operation Tests:** Combinations of adjustments
-   - Threshold = Sum of individual thresholds (max 5%)
+3. **Multi-Operation Tests:** NO THRESHOLD STACKING
+   - **Policy:** Each test uses single threshold, not sum of operations
+   - **Rationale:** Prevents additive drift hiding real parity issues
+   - Multi-op tests use standard 1% threshold unless specific operation requires relaxed
+   - If multi-op test fails at 1%, investigate which operation causes drift
 
-### When to Decrease Threshold
+### When to Decrease Threshold (Stricter Requirements)
 
 1. **Neutral State:** No adjustments applied
-   - Requirement: < 0.1% (should be near-identical)
+   - **Requirement: < 0.001% (0.001)** - Should be pixel-identical or nearly so
+   - Rationale: No operations = no differences, only possible source is compression
+   - If neutral test fails, indicates fundamental parity problem
 
 2. **Simple Linear Operations:** Exposure, brightness
    - Requirement: < 1% (minimal compression impact)
+   - These are baseline operations, must be highly accurate
 
 ## Pass/Fail Criteria
 

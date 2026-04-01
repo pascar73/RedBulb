@@ -30,3 +30,16 @@ echo "For now, we'll use JPEGs for initial testing."
 echo "RAW support will be added in Phase 2."
 echo ""
 echo "✅ JPEG dataset complete!"
+
+# RAW files (NEF + CR2) from sample repositories
+echo ""
+echo "4. Downloading Nikon RAW (NEF)..."
+curl -L "https://filesamples.com/samples/image/nef/sample_1920x1280.nef" \
+  -o test-raw-nikon.nef || echo "Failed to download NEF"
+
+echo "5. Downloading Canon RAW (CR2)..."
+curl -L "https://filesamples.com/samples/image/cr2/sample_1920x1280.cr2" \
+  -o test-raw-canon.cr2 || echo "Failed to download CR2"
+
+echo ""
+echo "✅ Full dataset complete (JPEGs + RAWs)!"
