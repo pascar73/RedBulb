@@ -8,16 +8,16 @@
 | **Image Comparison** | ✅ Complete | sharp + pixelmatch, heatmap generation |
 | **Heatmap Generation** | ✅ Complete | Diff images saved to reports/diffs/ |
 | **Test Suite Definition** | ✅ Complete | 5 core tests defined |
-| **Test Dataset** | ⚠️ **Partial** | **3 JPEGs ready, RAW files pending** |
-| **CI Workflow** | ✅ Complete | **Not yet tested** (pending test execution) |
-| **Tolerance Policy** | ✅ Complete | Documented with strict rules |
-| **Grain Seed Control** | 📝 Policy Only | **Implementation pending** |
-| **Client Render Engine** | ❌ **TODO** | Placeholder - throws error |
-| **Server Render Engine** | ❌ **TODO** | Placeholder - throws error |
-| **Golden Image Generation** | ❌ **TODO** | Script not yet implemented |
-| **End-to-End Test Run** | ❌ **Not Possible** | Blocked by render engines |
+| **Test Dataset** | ✅ Complete | 3 JPEGs + 3 RAWs (NEF/CR2/ARW) with checksums |
+| **CI Workflow** | ✅ Complete | Workflow file committed, awaiting PR demonstration |
+| **Tolerance Policy** | ✅ Complete | Strict rules, no stacking, grain seed policy |
+| **Grain Seed Control** | 📝 Policy Only | Implementation pending Week 2 |
+| **Client Render Engine** | 🟡 Minimal Stub | JPEG re-encode only (no adjustments yet) |
+| **Server Render Engine** | 🟡 Minimal Stub | JPEG re-encode only (no adjustments yet) |
+| **Golden Image Generation** | ❌ TODO Week 2 | Script not yet implemented |
+| **End-to-End Test Run** | 🟡 Possible | Stubs allow execution, real pipeline Week 2 |
 
-**Gate Status:** 🚧 **In Progress** - Conditional approval from @Lantana, formal pass pending corrections
+**Gate Status:** 🚧 **Awaiting Final Approval** - All corrections complete, CI demo pending
 
 ## Purpose
 
