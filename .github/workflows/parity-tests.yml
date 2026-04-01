@@ -52,6 +52,7 @@ jobs:
       
       - name: Comment PR with results
         if: github.event_name == 'pull_request' && failure()
+        continue-on-error: true
         uses: actions/github-script@v6
         with:
           script: |
@@ -73,6 +74,7 @@ jobs:
       
       - name: Success comment
         if: github.event_name == 'pull_request' && success()
+        continue-on-error: true
         uses: actions/github-script@v6
         with:
           script: |
