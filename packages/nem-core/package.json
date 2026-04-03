@@ -1,0 +1,24 @@
+{
+  "name": "@redbulb/nem-core",
+  "version": "0.1.0",
+  "description": "RedBulb Node Editor Module - Core evaluation engine",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "check": "tsc --noEmit"
+  },
+  "keywords": [
+    "redbulb",
+    "node-editor",
+    "photo-editing",
+    "develop"
+  ],
+  "author": "RedBulb Team",
+  "license": "AGPL-3.0",
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.4"
+  }
+}
