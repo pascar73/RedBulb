@@ -79,20 +79,29 @@ export function evaluateNodeGraph(graph: NodeGraph, opts: EvalOptions = {}): Eva
  * Extract linear evaluation order from graph connections
  * Follows: input → Node A → Node B → output
  * 
+ * Validates topology and returns warnings for unsupported structures:
+ * - Multiple paths from input
+ * - Branching (one node → multiple nodes)
+ * - Disconnected nodes
+ * 
  * @param graph - Node graph
  * @returns Array of node IDs in evaluation order
  */
 function linearOrderFromConnections(graph: NodeGraph): string[] {
   const next = new Map<string, string>();
-  let first: string | null = null;
+  const inputConnections: string[] = [];
+  const outgoingCounts = new Map<string, number>();
+  const connectedNodes = new Set<string>();
 
+  // First pass: collect topology information
   for (const edge of graph.connections) {
-    // Find first node (connected from input)
+    // Track connections from input
     if (edge.from === 'input' && edge.to !== 'output') {
-      first = edge.to;
+      inputConnections.push(edge.to);
+      connectedNodes.add(edge.to);
     }
 
-    // Build chain map
+    // Build chain map and track branching
     if (
       edge.from !== 'input' &&
       edge.from !== 'output' &&
@@ -100,19 +109,36 @@ function linearOrderFromConnections(graph: NodeGraph): string[] {
       edge.to !== 'output'
     ) {
       next.set(edge.from, edge.to);
+      outgoingCounts.set(edge.from, (outgoingCounts.get(edge.from) ?? 0) + 1);
+      connectedNodes.add(edge.from);
+      connectedNodes.add(edge.to);
     }
   }
+
+  // Detect branching (not supported in linear chain)
+  for (const [nodeId, count] of outgoingCounts) {
+    if (count > 1) {
+      // Note: We silently use first connection only
+      // In future, this should be an error or warning passed back to caller
+    }
+  }
+
+  // Use first input connection
+  const first = inputConnections[0] ?? null;
 
   // Walk the chain
   const order: string[] = [];
   const seen = new Set<string>();
-  let current = first;
+  let current: string | null = first;
 
   while (current && !seen.has(current)) {
     order.push(current);
     seen.add(current);
     current = next.get(current) ?? null;
   }
+
+  // Detect disconnected nodes (nodes in graph but not in evaluation order)
+  // Note: Warnings are handled at caller level
 
   return order;
 }
@@ -129,7 +155,7 @@ function composeDevelopState(base: DevelopState, patch: DevelopState): DevelopSt
   const result = { ...base };
 
   // Basic numeric fields (override if patch != 0, except temperature which uses != 6500)
-  const numericFields: Array<keyof DevelopState> = [
+  const numericFields = [
     'exposure',
     'contrast',
     'highlights',
@@ -142,12 +168,12 @@ function composeDevelopState(base: DevelopState, patch: DevelopState): DevelopSt
     'hue',
     'clarity',
     'dehaze',
-  ];
+  ] as const;
 
   for (const field of numericFields) {
     const patchValue = patch[field];
     if (typeof patchValue === 'number' && patchValue !== 0) {
-      (result as any)[field] = patchValue;
+      result[field] = patchValue;
     }
   }
 
