@@ -3,7 +3,11 @@
 **Purpose:** Reproducible build evidence for Phase 2 NEM stabilization  
 **Date:** 2026-04-04  
 **Branch:** week-3-nem-core  
-**Commit:** 4921c9beb8698dc837724baed751bf9d84733990
+**Latest Commit:** 6cc7e81b7 (Block 2E final with base comparison)  
+**Evidence Commits:**
+- 4921c9beb: Block 2D (adapter reduction)
+- a24706754: Block 2E initial (feature branch tests)
+- 6cc7e81b7: Block 2E final (base comparison added)
 
 ---
 
@@ -205,7 +209,8 @@ cd ~/Projects/RedBulb/web && npm test
 ## Artifacts & Links
 
 **Branch:** https://github.com/pascar73/RedBulb/tree/week-3-nem-core  
-**Latest Commit:** 4921c9beb (Block 2D complete)
+**Latest Commit:** 6cc7e81b7 (Block 2E complete with base comparison)  
+**GitHub Compare:** https://github.com/pascar73/RedBulb/compare/red-bulb...week-3-nem-core
 
 **Test Logs:**
 - nem-core: /tmp/nem-core-tests-feature.log
@@ -245,7 +250,7 @@ cd ~/Projects/RedBulb/web && npm test
 ---
 
 **Report Author:** Cassia  
-**Report Date:** 2026-04-04 16:30 GMT+1  
+**Report Date:** 2026-04-04 16:30 GMT+1 (initial) | 17:10 GMT+1 (base comparison added)  
 **Verification Status:** Ready for Lantana final gate review
 
 ---
