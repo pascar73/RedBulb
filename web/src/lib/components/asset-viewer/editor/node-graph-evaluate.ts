@@ -5,6 +5,11 @@
  * Uses adapter to convert between nested (web) and flat (core) DevelopState structures.
  * 
  * Week 3 Block 1C: Migrated to use @redbulb/nem-core via adapter
+ * 
+ * LEGACY STATUS: All previous local evaluation logic removed (commit e0b59b659).
+ * No legacy code path remains. All evaluation goes through shared @redbulb/nem-core.
+ * 
+ * TODO (Phase 1 - Block 2): Remove adapter layer after web DevelopState type unification.
  */
 
 import type { EvalOptions, EvalResult, Node, NodeGraph } from './node-graph-types';
