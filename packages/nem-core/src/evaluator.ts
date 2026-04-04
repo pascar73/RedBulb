@@ -40,8 +40,10 @@ export function evaluateNodeGraph(graph: NodeGraph, opts: EvalOptions = {}): Eva
     };
   }
 
-  // Get linear evaluation order from connections
-  const order = linearOrderFromConnections(graph);
+  // Get linear evaluation order from connections (includes topology warnings)
+  const { order, warnings: topologyWarnings } = linearOrderFromConnections(graph);
+  warnings.push(...topologyWarnings);
+  
   const includeBypassed = opts.includeBypassed === true;
 
   // Optionally stop at specific node
@@ -76,6 +78,14 @@ export function evaluateNodeGraph(graph: NodeGraph, opts: EvalOptions = {}): Eva
 }
 
 /**
+ * Topology validation result
+ */
+interface TopologyResult {
+  order: string[];
+  warnings: string[];
+}
+
+/**
  * Extract linear evaluation order from graph connections
  * Follows: input → Node A → Node B → output
  * 
@@ -83,11 +93,13 @@ export function evaluateNodeGraph(graph: NodeGraph, opts: EvalOptions = {}): Eva
  * - Multiple paths from input
  * - Branching (one node → multiple nodes)
  * - Disconnected nodes
+ * - Cycles
  * 
  * @param graph - Node graph
- * @returns Array of node IDs in evaluation order
+ * @returns Evaluation order + topology warnings
  */
-function linearOrderFromConnections(graph: NodeGraph): string[] {
+function linearOrderFromConnections(graph: NodeGraph): TopologyResult {
+  const warnings: string[] = [];
   const next = new Map<string, string>();
   const inputConnections: string[] = [];
   const outgoingCounts = new Map<string, number>();
@@ -108,7 +120,10 @@ function linearOrderFromConnections(graph: NodeGraph): string[] {
       edge.to !== 'input' &&
       edge.to !== 'output'
     ) {
-      next.set(edge.from, edge.to);
+      // Only set next if not already set (use first connection for branching)
+      if (!next.has(edge.from)) {
+        next.set(edge.from, edge.to);
+      }
       outgoingCounts.set(edge.from, (outgoingCounts.get(edge.from) ?? 0) + 1);
       connectedNodes.add(edge.from);
       connectedNodes.add(edge.to);
@@ -118,9 +133,13 @@ function linearOrderFromConnections(graph: NodeGraph): string[] {
   // Detect branching (not supported in linear chain)
   for (const [nodeId, count] of outgoingCounts) {
     if (count > 1) {
-      // Note: We silently use first connection only
-      // In future, this should be an error or warning passed back to caller
+      warnings.push(`Topology: Node ${nodeId} has ${count} outgoing connections (branching not supported, using first connection only)`);
     }
+  }
+
+  // Detect multiple input roots
+  if (inputConnections.length > 1) {
+    warnings.push(`Topology: Multiple nodes connected from input (${inputConnections.length} found, using first: ${inputConnections[0]})`);
   }
 
   // Use first input connection
@@ -131,16 +150,34 @@ function linearOrderFromConnections(graph: NodeGraph): string[] {
   const seen = new Set<string>();
   let current: string | null = first;
 
-  while (current && !seen.has(current)) {
+  while (current) {
+    if (seen.has(current)) {
+      // Cycle detected
+      warnings.push(`Topology: Cycle detected at node ${current} (evaluation stopped)`);
+      break;
+    }
     order.push(current);
     seen.add(current);
     current = next.get(current) ?? null;
   }
 
   // Detect disconnected nodes (nodes in graph but not in evaluation order)
-  // Note: Warnings are handled at caller level
+  const allNodeIds = new Set(graph.nodes.map((n) => n.id));
+  const evaluatedNodeIds = new Set(order);
+  const disconnected: string[] = [];
+  
+  for (const nodeId of allNodeIds) {
+    if (!evaluatedNodeIds.has(nodeId) && connectedNodes.has(nodeId)) {
+      // Node exists in graph and has connections but not in evaluation chain
+      disconnected.push(nodeId);
+    }
+  }
+  
+  if (disconnected.length > 0) {
+    warnings.push(`Topology: ${disconnected.length} node(s) disconnected from main chain: ${disconnected.join(', ')}`);
+  }
 
-  return order;
+  return { order, warnings };
 }
 
 /**
