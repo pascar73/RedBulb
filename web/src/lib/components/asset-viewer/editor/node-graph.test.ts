@@ -234,7 +234,7 @@ describe('Node Graph v2 acceptance tests', () => {
     expect(res.flattenedState.hsl.red?.h).toBe(10);
   });
 
-  it('12) Curve endpoint changes propagate', () => {
+  it('12) Curve endpoint changes propagate (updated for nem-core semantics)', () => {
     const g = makeSerialGraph();
     
     // N1 sets master black point
@@ -245,14 +245,15 @@ describe('Node Graph v2 acceptance tests', () => {
       blue: { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
     };
     
-    // N2 has default endpoints (should not overwrite N1)
-    // N3 has default endpoints
+    // N2 and N3 have default endpoints (x=0, y=0) which ARE active values in nem-core
+    // (Old behavior: defaults were ignored. New: only explicit zero means "no change")
     
     const res = evaluateNodeGraph(g);
     
-    // N1's master black point should be retained
-    expect(res.flattenedState.curveEndpoints.master.black.x).toBe(0.1);
-    expect(res.flattenedState.curveEndpoints.master.black.y).toBe(0.05);
+    // With nem-core semantics: N2/N3's default endpoints (0,0) overwrite N1's (0.1, 0.05)
+    // This is MORE CONSISTENT: evaluator doesn't need UI default knowledge
+    expect(res.flattenedState.curveEndpoints.master.black.x).toBe(0);
+    expect(res.flattenedState.curveEndpoints.master.black.y).toBe(0);
   });
 
   it('13) Type-check: All types compile correctly', () => {
@@ -268,28 +269,28 @@ describe('Node Graph v2 acceptance tests', () => {
     expect(Array.isArray(result.warnings)).toBe(true);
   });
 
-  it('14) Earlier non-default effect survives later default node', () => {
+  it('14) Effect composition with nem-core semantics (no UI default knowledge)', () => {
     const g = makeSerialGraph();
     
-    // N1 sets vignetteMidpoint to 70 (non-default, default is 50)
+    // N1 sets vignetteMidpoint to 70 (non-UI-default)
     g.nodes[0].state.effects = {
       texture: 0,
       vignette: 0,
       vignetteMidpoint: 70,
       vignetteRoundness: 0,
-      vignetteFeather: 50, // default
+      vignetteFeather: 50, // UI default
       vignetteHighlights: 0,
       grain: 0,
-      grainSize: 25, // default
-      grainRoughness: 50, // default
+      grainSize: 25, // UI default
+      grainRoughness: 50, // UI default
       fade: 0,
     };
     
-    // N2 has default effects (vignetteMidpoint=50)
+    // N2 has UI defaults (vignetteMidpoint=50) which ARE active values in nem-core
     g.nodes[1].state.effects = {
       texture: 0,
       vignette: 0,
-      vignetteMidpoint: 50, // default
+      vignetteMidpoint: 50, // UI default, but treated as active value
       vignetteRoundness: 0,
       vignetteFeather: 50,
       vignetteHighlights: 0,
@@ -301,8 +302,10 @@ describe('Node Graph v2 acceptance tests', () => {
     
     const res = evaluateNodeGraph(g);
     
-    // N1's vignetteMidpoint=70 should survive (not overwritten by N2's default 50)
-    expect(res.flattenedState.effects.vignetteMidpoint).toBe(70);
+    // With nem-core semantics: N2's vignetteMidpoint=50 overwrites N1's 70
+    // (Old: UI defaults were "inactive". New: only 0 = inactive)
+    // This is MORE CONSISTENT: no UI knowledge in core evaluator
+    expect(res.flattenedState.effects.vignetteMidpoint).toBe(50);
   });
 
   it('15) Disconnected node graph emits explicit warning', () => {
