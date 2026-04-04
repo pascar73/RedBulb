@@ -27,6 +27,8 @@ Web Result (nested DevelopState)
 ```
 Core Graph (flat DevelopState)
     ↓
+NemEvaluatorService.evaluateNodeGraph() (server wrapper)
+    ↓
 @redbulb/nem-core evaluator
     ↓
 Core Result (flat DevelopState)

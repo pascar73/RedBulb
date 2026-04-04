@@ -4,19 +4,29 @@
  * Tests that web runtime path and server runtime path produce identical results
  * for the same input fixtures.
  * 
- * Web path: web graph (nested) → adapter → nem-core → adapter → web result (nested)
- * Server path: core graph (flat) → nem-core → core result (flat)
+ * Web path: web graph (nested) → node-graph-evaluate.ts → adapter → nem-core → adapter → web result (nested)
+ * Server path: core graph (flat) → NemEvaluatorService → nem-core → core result (flat)
  * 
  * Block 2B Task 5 (closure): Dual-path parity harness
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { evaluateNodeGraph as webEvaluate } from './components/asset-viewer/editor/node-graph-evaluate';
-import { evaluateNodeGraph as serverEvaluate } from '@redbulb/nem-core';
 import { webToCore, coreToWeb } from './nem-core-adapter';
 import { createEmptyDevelopState } from './components/asset-viewer/editor/node-types';
 import type { NodeGraph as WebNodeGraph } from './components/asset-viewer/editor/node-graph-types';
 import type { NodeGraph as ServerNodeGraph, DevelopState as CoreDevelopState } from '@redbulb/nem-core';
+
+// Import actual server service (from server/src)
+// This proves we're using the real server runtime path, not just core
+import { NemEvaluatorService } from '../../../server/src/services/nem-evaluator.service';
+
+let serverService: NemEvaluatorService;
+
+beforeAll(() => {
+  // Instantiate actual server service (no DI needed - it has no dependencies)
+  serverService = new NemEvaluatorService();
+});
 
 /**
  * Test fixture: represents same logical state in both web and server formats
@@ -346,12 +356,12 @@ describe('dual-path parity (web runtime vs server runtime)', () => {
 
   parityFixtures.forEach((fixture) => {
     it(`produces identical output for fixture: ${fixture.name}`, () => {
-      // Execute web path: web graph → adapter → core → adapter → web result
+      // Execute web path: web graph → node-graph-evaluate.ts wrapper → adapter → core → adapter → web result
       const webResult = webEvaluate(fixture.webGraph);
       const normalizedWebOutput = normalizeWebOutput(webResult.flattenedState);
 
-      // Execute server path: core graph → core → core result
-      const serverResult = serverEvaluate(fixture.serverGraph);
+      // Execute server path: core graph → NemEvaluatorService wrapper → core → core result
+      const serverResult = serverService.evaluateNodeGraph(fixture.serverGraph);
       const normalizedServerOutput = normalizeServerOutput(serverResult.flattenedState);
 
       // Compare normalized outputs
@@ -387,7 +397,7 @@ describe('dual-path parity (web runtime vs server runtime)', () => {
     const fixture = fixtures[0]; // Use first fixture
     
     const webResult = webEvaluate(fixture.webGraph);
-    const serverResult = serverEvaluate(fixture.serverGraph);
+    const serverResult = serverService.evaluateNodeGraph(fixture.serverGraph);
     
     expect(webResult.evaluatedNodeIds).toEqual(serverResult.evaluatedNodeIds);
   });
@@ -396,7 +406,7 @@ describe('dual-path parity (web runtime vs server runtime)', () => {
     const emptyFixture = fixtures.find((f) => f.name === 'empty-graph')!;
     
     const webResult = webEvaluate(emptyFixture.webGraph);
-    const serverResult = serverEvaluate(emptyFixture.serverGraph);
+    const serverResult = serverService.evaluateNodeGraph(emptyFixture.serverGraph);
     
     // Both should produce warnings (different kinds, but both flag the issue)
     // Web: validation warnings
@@ -419,7 +429,7 @@ describe('dual-path parity (web runtime vs server runtime)', () => {
       const disconnectedFixture = fixtures.find((f) => f.name === 'disconnected-node')!;
       
       const webResult = webEvaluate(disconnectedFixture.webGraph);
-      const serverResult = serverEvaluate(disconnectedFixture.serverGraph);
+      const serverResult = serverService.evaluateNodeGraph(disconnectedFixture.serverGraph);
       
       // Both should evaluate node1 only
       expect(webResult.evaluatedNodeIds).toContain('node1');
