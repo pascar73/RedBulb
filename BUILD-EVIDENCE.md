@@ -3,7 +3,7 @@
 **Purpose:** Reproducible build evidence for Phase 2 NEM stabilization  
 **Date:** 2026-04-04  
 **Branch:** week-3-nem-core  
-**Latest Commit:** 6bf4444f0 (Block 2E final - all commit references verified reachable)  
+**Latest Commit:** 4ae1bd887 (Block 2E final - all commit references verified reachable)  
 **Evidence Commits:**
 - 4921c9beb: Block 2D (adapter reduction)
 - a24706754: Block 2E initial (feature branch tests)
@@ -14,7 +14,7 @@
 - 6c35e8d8b: Block 2E (Lantana requirements complete)
 - 8d5753e0b: Block 2E (commit hash audit)
 - a1209fe8f: Block 2E (final commit hash correction)
-- 6bf4444f0: Block 2E final (current HEAD, all 10 commits verified reachable)
+- 4ae1bd887: Block 2E final (current HEAD, all 10 commits verified reachable)
 
 ---
 
@@ -206,7 +206,7 @@ cd ~/Projects/RedBulb/web && npm test
 ## Artifacts & Links
 
 **Branch:** https://github.com/pascar73/RedBulb/tree/week-3-nem-core  
-**Latest Commit:** 6bf4444f0 (Block 2E final - all commit references verified reachable)  
+**Latest Commit:** 4ae1bd887 (Block 2E final - all commit references verified reachable)  
 **GitHub Compare:** https://github.com/pascar73/RedBulb/compare/red-bulb...week-3-nem-core
 
 **Test Logs:**
