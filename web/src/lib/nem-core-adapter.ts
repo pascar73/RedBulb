@@ -6,7 +6,9 @@
  * 
  * This adapter provides bidirectional conversion until type unification is complete.
  * 
- * TODO Phase 1 - Block 2: Unify web/server DevelopState types, remove this adapter
+ * @deprecated TEMPORARY - Remove after Phase 2 type unification (target: Phase 2.3)
+ * @see ADAPTER-REMOVAL-TICKET.md
+ * @see ADAPTER-TOUCHPOINTS.md
  */
 
 import type { DevelopState as WebDevelopState } from './components/asset-viewer/editor/node-types';
@@ -14,6 +16,9 @@ import type { DevelopState as CoreDevelopState } from '@redbulb/nem-core';
 
 /**
  * Convert web client nested DevelopState to NEM core flat structure
+ * 
+ * @deprecated TEMPORARY - Remove after Phase 2 type unification
+ * @see ADAPTER-REMOVAL-TICKET.md
  */
 export function webToCore(web: WebDevelopState): CoreDevelopState {
   return {
@@ -74,6 +79,9 @@ export function webToCore(web: WebDevelopState): CoreDevelopState {
 
 /**
  * Convert NEM core flat DevelopState to web client nested structure
+ * 
+ * @deprecated TEMPORARY - Remove after Phase 2 type unification
+ * @see ADAPTER-REMOVAL-TICKET.md
  */
 export function coreToWeb(core: CoreDevelopState): WebDevelopState {
   return {

@@ -17,6 +17,7 @@ import type { DevelopState } from './node-types';
 import { createEmptyDevelopState } from './node-types';
 import { validateGraph } from './node-graph-validate';
 import { evaluateNodeGraph as evaluateCore } from '@redbulb/nem-core';
+// TODO: Remove adapter after Phase 2 type unification - See ADAPTER-REMOVAL-TICKET.md
 import { webToCore, coreToWeb } from '../../../nem-core-adapter';
 
 /**
@@ -40,13 +41,14 @@ export function evaluateNodeGraph(graph: NodeGraph, opts: EvalOptions = {}): Eva
   }
 
   // Convert web graph to core graph structure
+  // TODO: After Phase 2.3, pass node.state directly (no conversion needed)
   const coreGraph = {
     nodes: graph.nodes.map((node) => ({
       id: node.id,
       label: node.label,
       bypass: node.bypass,
       position: node.position,
-      state: webToCore(node.state), // Convert nested → flat
+      state: webToCore(node.state), // TEMPORARY: Convert nested → flat (Phase 2.3: remove)
     })),
     connections: graph.connections,
   };
@@ -55,8 +57,9 @@ export function evaluateNodeGraph(graph: NodeGraph, opts: EvalOptions = {}): Eva
   const coreResult = evaluateCore(coreGraph, opts);
 
   // Convert result back to web structure
+  // TODO: After Phase 2.3, return coreResult.flattenedState directly (no conversion needed)
   return {
-    flattenedState: coreToWeb(coreResult.flattenedState), // Convert flat → nested
+    flattenedState: coreToWeb(coreResult.flattenedState), // TEMPORARY: Convert flat → nested (Phase 2.3: remove)
     evaluatedNodeIds: coreResult.evaluatedNodeIds,
     warnings: [...warnings, ...coreResult.warnings],
   };
