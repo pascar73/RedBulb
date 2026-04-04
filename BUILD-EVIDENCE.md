@@ -3,11 +3,13 @@
 **Purpose:** Reproducible build evidence for Phase 2 NEM stabilization  
 **Date:** 2026-04-04  
 **Branch:** week-3-nem-core  
-**Latest Commit:** 6cc7e81b7 (Block 2E final with base comparison)  
+**Latest Commit:** da362c658 (Block 2E final - documentation consistency fixed)  
 **Evidence Commits:**
 - 4921c9beb: Block 2D (adapter reduction)
 - a24706754: Block 2E initial (feature branch tests)
-- 6cc7e81b7: Block 2E final (base comparison added)
+- 6cc7e81b7: Block 2E (base comparison added)
+- e09412b11: Block 2E (metadata fix)
+- da362c658: Block 2E final (removed conflicting deferred section)
 
 ---
 
@@ -199,7 +201,7 @@ cd ~/Projects/RedBulb/web && npm test
 ## Artifacts & Links
 
 **Branch:** https://github.com/pascar73/RedBulb/tree/week-3-nem-core  
-**Latest Commit:** 6cc7e81b7 (Block 2E complete with base comparison)  
+**Latest Commit:** da362c658 (Block 2E final - documentation consistency fixed)  
 **GitHub Compare:** https://github.com/pascar73/RedBulb/compare/red-bulb...week-3-nem-core
 
 **Test Logs:**
@@ -250,6 +252,29 @@ cd ~/Projects/RedBulb/web && npm test
 **Base Branch:** red-bulb  
 **Base Commit:** d1211a0706c2b9f5dd2617833fcb46fffafb8b08  
 **Comparison Purpose:** Verify zero regressions from Phase 2 changes
+
+### Commands Executed (Identical for Both Branches)
+
+**Server Tests:**
+```bash
+git checkout red-bulb  # or week-3-nem-core
+cd ~/Projects/RedBulb/server
+npm test
+```
+
+**Web Tests:**
+```bash
+git checkout red-bulb  # or week-3-nem-core
+cd ~/Projects/RedBulb/web
+npm test
+```
+
+**Environment:** Same for both branches
+- Node.js v22.22.2
+- npm 10.9.7
+- Linux x86_64 Ubuntu 24.04
+
+---
 
 ### Server Tests Comparison
 
