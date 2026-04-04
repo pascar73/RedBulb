@@ -41,7 +41,12 @@ Complete Phase 2 for node editor foundation stability across server/web with sha
 
 ## 5. Known Non-Blocking Context
 
-Pre-existing non-NEM server mock failures remain outside this scope.
+**Pre-existing non-NEM server mock failures** remain outside this scope.
+
+**Invalid topology cases in web pre-validation** are expected by design.
+- Web validation layer rejects invalid topologies before core evaluation
+- This is intentional (stricter validation at UI layer)
+- Documented in `DUAL-PATH-PARITY-REPORT.md`
 
 ---
 
@@ -106,16 +111,21 @@ Pre-existing non-NEM server mock failures remain outside this scope.
 
 ## 10. Risk Assessment
 
+**Adapter Remains Temporary:**
+- **Risk:** Adapter layer persists until Phase 3 type unification
+- **Mitigation:** Adapter isolated to 3 touchpoints, fully documented, deprecation tags added
+- **Timeline:** Phase 3 will remove adapter entirely
+
 **Architecture Changes:**
-- Risk: LOW ✅ (180/180 tests passing, 0 regressions)
-- Mitigation: All changes additive, adapter isolated to 3 touchpoints
-- Rollback: Revert merge commit (< 5 min)
+- **Risk:** LOW ✅ (180/180 tests passing, 0 regressions)
+- **Mitigation:** All changes additive, adapter isolated to 3 touchpoints
+- **Rollback:** Revert PR merge commit to restore `red-bulb` baseline (< 5 min)
 
 **Performance:**
-- Impact: POSITIVE ✅ (17% faster web tests)
+- **Impact:** POSITIVE ✅ (17% faster web tests)
 
 **Data Loss:**
-- Risk: NONE ✅ (75/75 adapter tests passing, dual-path parity verified)
+- **Risk:** NONE ✅ (75/75 adapter tests passing, dual-path parity verified)
 
 ## 11. Rollback Plan
 
@@ -171,10 +181,12 @@ cd web && npm test                 # 173s
 
 ## 15. Next Steps (Post-Merge)
 
-**Phase 3 Planning:**
-1. Adapter removal execution (type unification)
-2. Node editor UX stabilization
-3. Release validation checklist
+**Phase 3 Proposal:**
+1. **Remove adapter via type unification** - Flatten web DevelopState to match core (eliminate adapter entirely)
+2. **Node editor UX stabilization gate** - UI polish, drag/drop refinement, visual feedback
+3. **Release validation checklist** - Pre-production readiness assessment
+
+**Timeline:** Phase 3 planning begins immediately after merge
 
 ---
 
