@@ -12,7 +12,40 @@ Complete Phase 2 for node editor foundation stability across server/web with sha
 - **2D:** Adapter reduction to boundary-only + deprecation/touchpoint docs
 - **2E:** Build/test evidence + base vs feature comparison + hash-consistency audit
 
-## 3. Test Results
+## 3. Key Files
+
+**Core Package:**
+- `packages/nem-core/*` - Shared evaluation core (43 tests)
+
+**Web Integration:**
+- `web/src/lib/nem-core-adapter*` - Boundary-only adapter (35 tests)
+- `web/src/lib/dual-path-parity.test.ts` - Cross-runtime parity validation (9 tests)
+
+**Topology Hardening:**
+- `packages/nem-core/src/topology*` - Fixtures + validation (15 tests)
+
+**Evidence & Documentation:**
+- `BUILD-EVIDENCE.md` - Complete audit trail
+- `docs/docs/nem/*` - Canonical contract + semantics + migration notes
+
+## 4. Validation Summary
+
+**Critical Phase 2 Tests:** **180/180 pass** ✅
+
+**Breakdown:**
+- NEM core: 43/43
+- Server NEM subset: 41/41
+- Web adapter/parity/dual-path/node-graph critical suites: pass
+
+**Regression Verdict:** **ZERO critical regressions** ✅
+
+## 5. Known Non-Blocking Context
+
+Pre-existing non-NEM server mock failures remain outside this scope.
+
+---
+
+## 6. Test Results (Detailed)
 
 **Critical Phase 2 Tests:** 180/180 ✅ (100% pass rate)
 
@@ -27,7 +60,7 @@ Complete Phase 2 for node editor foundation stability across server/web with sha
 - topology-cross-runtime invalid: 10/10 (web validation layer - by design)
 - server non-NEM mocks: 958 (pre-existing)
 
-## 4. Base vs Feature Comparison
+## 7. Base vs Feature Comparison
 
 **Regression Analysis:** ZERO ✅
 
@@ -41,7 +74,7 @@ Complete Phase 2 for node editor foundation stability across server/web with sha
 
 **Verdict:** SAFE TO MERGE
 
-## 5. Key Commits
+## 8. Key Commits
 
 **Phase 1 Foundation:**
 - `623becd64` - Phase 1 Week 1: Parity test framework
@@ -58,7 +91,7 @@ Complete Phase 2 for node editor foundation stability across server/web with sha
 
 **Total:** 55 commits (623becd64...e831a08ac)
 
-## 6. Documentation Added
+## 9. Documentation Added
 
 **Phase 2 Docs (6 files, 54KB):**
 - `CANONICAL-DEVELOP-STATE.md` (16KB) - Field-by-field reference
@@ -71,7 +104,7 @@ Complete Phase 2 for node editor foundation stability across server/web with sha
 **Evidence:**
 - `BUILD-EVIDENCE.md` - Complete audit trail (frozen at 4ae1bd887)
 
-## 7. Risk Assessment
+## 10. Risk Assessment
 
 **Architecture Changes:**
 - Risk: LOW ✅ (180/180 tests passing, 0 regressions)
@@ -84,7 +117,7 @@ Complete Phase 2 for node editor foundation stability across server/web with sha
 **Data Loss:**
 - Risk: NONE ✅ (75/75 adapter tests passing, dual-path parity verified)
 
-## 8. Rollback Plan
+## 11. Rollback Plan
 
 **If issues discovered:**
 1. Revert merge commit: `git revert -m 1 <hash> && git push`
@@ -94,7 +127,7 @@ Complete Phase 2 for node editor foundation stability across server/web with sha
 
 **Rollback time:** < 5 minutes
 
-## 9. CI Validation
+## 12. CI Validation
 
 **Environment:**
 - Platform: Linux x86_64 Ubuntu 24.04
@@ -110,7 +143,7 @@ cd server && npm test              # 338s
 cd web && npm test                 # 173s
 ```
 
-## 10. Gate Status
+## 13. Gate Status
 
 **All Phase 2 Gates:** ✅ PASSED
 
@@ -123,7 +156,7 @@ cd web && npm test                 # 173s
 
 **Reviewer:** @Lantana
 
-## 11. Merge Checklist
+## 14. Merge Checklist
 
 - [x] All Phase 2 blocks complete (2A-2E)
 - [x] All Lantana gates passed
@@ -136,7 +169,7 @@ cd web && npm test                 # 173s
 
 **Status:** ✅ READY FOR MERGE
 
-## 12. Next Steps (Post-Merge)
+## 15. Next Steps (Post-Merge)
 
 **Phase 3 Planning:**
 1. Adapter removal execution (type unification)
