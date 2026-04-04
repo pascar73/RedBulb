@@ -67,8 +67,8 @@ export function webToCore(web: WebDevelopState): CoreDevelopState {
       clarity: web.details.clarity,
     },
     
-    // Tone mapper (convert web 'filmic' to core, default to 'none')
-    toneMapper: web.toneMapper === 'filmic' ? 'filmic' : 'none',
+    // Tone mapper (pass through directly)
+    toneMapper: web.toneMapper,
   };
 }
 
