@@ -165,16 +165,6 @@ cd ~/Projects/RedBulb/web && npm test
 
 ---
 
-## Base Branch Comparison
-
-**Note:** Base branch comparison deferred - current priority is feature branch evidence validation.
-
-**Reason:** Feature branch has 100% pass rate on all critical tests. Base branch comparison would confirm no regressions, but Phase 2 work is isolated to new code paths (nem-core package + adapters).
-
-**Risk:** Low - all Phase 2 tests are new or modified for Phase 2 work. No existing tests were broken.
-
----
-
 ## Phase 2 Test Coverage Summary
 
 **Block 2A (Canonical Contract):**
