@@ -19,7 +19,7 @@ a1209fe8f Block 2E FINAL: All commit hash references audited and verified
 **Purpose:** Reproducible build evidence for Phase 2 NEM stabilization  
 **Date:** 2026-04-04  
 **Branch:** week-3-nem-core  
-**Latest Commit:** 4ae1bd887 (Block 2E final - all commit references verified reachable)  
+**Evidence Verified Through Commit:** 4ae1bd887 (Block 2E final - all references verified)  
 **Evidence Commits:**
 - 4921c9beb: Block 2D (adapter reduction)
 - a24706754: Block 2E initial (feature branch tests)
@@ -222,8 +222,10 @@ cd ~/Projects/RedBulb/web && npm test
 ## Artifacts & Links
 
 **Branch:** https://github.com/pascar73/RedBulb/tree/week-3-nem-core  
-**Latest Commit:** 4ae1bd887 (Block 2E final - all commit references verified reachable)  
+**Evidence Verified Through Commit:** 4ae1bd887 (Block 2E final - all references verified)  
 **GitHub Compare:** https://github.com/pascar73/RedBulb/compare/red-bulb...week-3-nem-core
+
+**Note:** This evidence document is frozen at commit 4ae1bd887. Future commits (documentation packaging, PR prep, etc.) do not invalidate the evidence or require document updates.
 
 **Test Logs:**
 - nem-core: /tmp/nem-core-tests-feature.log
