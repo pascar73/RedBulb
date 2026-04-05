@@ -178,6 +178,21 @@ export class MediaService extends BaseService {
       return JobStatus.Failed;
     }
 
+    // Week 2 Task #4: Check if XMP/state changed before regenerating
+    const { detectXMPChange, markXMPProcessed } = await import('./thumbnail-change-detector.js');
+    const changeResult = await detectXMPChange(asset.id, asset.originalPath);
+
+    if (!changeResult.changed) {
+      this.logger.verbose(
+        `Skipping thumbnail generation for asset ${id}: XMP unchanged (${changeResult.reason})`,
+      );
+      return JobStatus.Skipped;
+    }
+
+    this.logger.verbose(
+      `Regenerating thumbnail for asset ${id}: ${changeResult.reason}`,
+    );
+
     const generated = await this.generateEditedThumbnails(asset, config);
     await this.syncFiles(
       asset.files.filter((file) => file.isEdited),
@@ -203,6 +218,9 @@ export class MediaService extends BaseService {
 
     const fullsizeDimensions = generated?.fullsizeDimensions ?? getDimensions(asset.exifInfo!);
     await this.assetRepository.update({ id: asset.id, ...fullsizeDimensions });
+
+    // Mark XMP as processed (update change detection cache)
+    await markXMPProcessed(asset.id, asset.originalPath);
 
     return JobStatus.Success;
   }

@@ -5,6 +5,7 @@ packages:
   - e2e-auth-server
   - i18n
   - open-api/typescript-sdk
+  - packages/*
   - server
   - plugins
   - web
