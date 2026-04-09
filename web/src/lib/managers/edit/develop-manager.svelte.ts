@@ -457,7 +457,6 @@ class DevelopManager implements EditToolManager {
       selectedNodeId: 'node-01',
       nodes: [{
         id: 'node-01',
-        type: 'develop',
         label: '01',
         state: currentState as DevelopState,
         bypass: false,
@@ -682,6 +681,7 @@ class DevelopManager implements EditToolManager {
       version: 2,
       selectedNodeId: node.id,
       nodes: [node],
+      connections: buildSerialConnections([node.id]),
       geometry: createDefaultGeometry(),
     };
     this.selectedNodeId = node.id;
@@ -769,10 +769,9 @@ class DevelopManager implements EditToolManager {
       blacks: this.blacks,
       temperature: this.temperature,
       tint: this.tint,
-    hue: this.hue,
+      hue: this.hue,
       saturation: this.saturation,
       vibrance: this.vibrance,
-      hue: this.hue,
       clarity: this.clarity,
       dehaze: this.dehaze,
 
