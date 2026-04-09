@@ -48,17 +48,15 @@ interface DualPathFixture {
 function createWebNode(id: string, stateOverrides: any = {}) {
   const state = createEmptyDevelopState();
   
-  if (stateOverrides.basic) {
-    Object.assign(state.basic, stateOverrides.basic);
-  }
-  if (stateOverrides.color) {
-    Object.assign(state.color, stateOverrides.color);
-  }
-  if (stateOverrides.details) {
-    Object.assign(state.details, stateOverrides.details);
-  }
-  if (stateOverrides.effects) {
-    Object.assign(state.effects, stateOverrides.effects);
+  // Apply flat structure overrides
+  for (const [key, value] of Object.entries(stateOverrides)) {
+    if (key in state && typeof value !== 'object') {
+      (state as any)[key] = value;
+    } else if (key === 'details' && value) {
+      state.details = { ...state.details, ...value };
+    } else if (key === 'effects' && value) {
+      state.effects = { ...state.effects, ...value };
+    }
   }
   
   return {
