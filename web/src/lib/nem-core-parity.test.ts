@@ -19,16 +19,24 @@ import { createEmptyDevelopState } from './components/asset-viewer/editor/node-t
  */
 function createWebNode(id: string, stateOverrides: any = {}): Node {
   const webState = createEmptyDevelopState();
-  Object.assign(webState.basic, stateOverrides.basic || {});
-  Object.assign(webState.color, stateOverrides.color || {});
-  Object.assign(webState.details, stateOverrides.details || {});
-  Object.assign(webState.effects, stateOverrides.effects || {});
+  
+  // Apply flat structure overrides
+  for (const [key, value] of Object.entries(stateOverrides)) {
+    if (key in webState && typeof value !== 'object') {
+      (webState as any)[key] = value;
+    } else if (key === 'details' && value) {
+      webState.details = { ...webState.details, ...value };
+    } else if (key === 'effects' && value) {
+      webState.effects = { ...webState.effects, ...value };
+    }
+  }
   
   return {
     id,
-    type: 'develop',
-    state: webToCore(webState),
+    label: id,
+    state: webState,
     bypass: false,
+    position: { x: 0, y: 0 }
   };
 }
 
