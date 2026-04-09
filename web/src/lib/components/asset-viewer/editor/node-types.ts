@@ -14,6 +14,9 @@ let _nodeCounter = 0;
 
 export const NODE_W = 160;
 export const NODE_GAP = 24;
+export const MAX_NODES = 10;
+export const TOP_PAD = 40;
+export const SIDE_PAD = 24;
 // ══════════════════════════════════════════════════════════════
 // DEVELOP STATE V1 (Legacy Nested Format — kept for migration)
 // ══════════════════════════════════════════════════════════════
@@ -548,6 +551,75 @@ export function validateConnection(
   }
   
   return null; // Valid
+}
+
+export function hasCycle(connections: NodeConnection[]): boolean {
+  const adjacency = new Map<string, string[]>();
+  const visited = new Set<string>();
+  const recStack = new Set<string>();
+  
+  // Build adjacency list (skip "input" and "output" special nodes)
+  for (const conn of connections) {
+    if (conn.from !== "input" && conn.from !== "output") {
+      if (!adjacency.has(conn.from)) adjacency.set(conn.from, []);
+      if (conn.to !== "input" && conn.to !== "output") {
+        adjacency.get(conn.from)!.push(conn.to);
+      }
+    }
+  }
+  
+  // DFS cycle detection
+  function dfs(node: string): boolean {
+    visited.add(node);
+    recStack.add(node);
+    
+    const neighbors = adjacency.get(node) || [];
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor)) {
+        if (dfs(neighbor)) return true;
+      } else if (recStack.has(neighbor)) {
+        return true; // Back edge found → cycle
+      }
+    }
+    
+    recStack.delete(node);
+    return false;
+  }
+  
+  // Check all nodes
+  for (const node of adjacency.keys()) {
+    if (!visited.has(node)) {
+      if (dfs(node)) return true;
+    }
+  }
+  
+  return false;
+}
+
+export function removeNodeConnections(
+  connections: NodeConnection[],
+  nodeId: string,
+): void {
+  // Find incoming: X → nodeId
+  const inConn = connections.find(c => c.to === nodeId);
+  // Find outgoing: nodeId → Y
+  const outConn = connections.find(c => c.from === nodeId);
+  
+  // Remove both connections
+  const filtered = connections.filter(c => c.from !== nodeId && c.to !== nodeId);
+  connections.length = 0;
+  connections.push(...filtered);
+  
+  // Reconnect: X → Y
+  if (inConn && outConn) {
+    connections.push({ from: inConn.from, to: outConn.to });
+  } else if (inConn && !outConn) {
+    // Node was at end, reconnect to output
+    connections.push({ from: inConn.from, to: "output" });
+  } else if (!inConn && outConn) {
+    // Node was at start, reconnect from input
+    connections.push({ from: "input", to: outConn.to });
+  }
 }
 
 // NODE GRAPH UTILITIES — restored for develop-manager compatibility
