@@ -13,27 +13,14 @@ import { migrateDevelopToNodeGraph } from './node-graph-migrate';
 function makeState(patch: Record<string, number>): DevelopState {
   const base = createEmptyDevelopState();
   
-  // Apply patches to the appropriate category
-  const basic = { ...base.basic };
-  const color = { ...base.color };
-  const details = { ...base.details };
-  
+  // Apply patches directly to flat structure
   for (const [key, value] of Object.entries(patch)) {
-    if (key === 'exposure' || key === 'contrast' || key === 'shadows' || key === 'highlights' || key === 'whites' || key === 'blacks' || key === 'brightness') {
-      (basic as any)[key] = value;
-    } else if (key === 'saturation' || key === 'temperature' || key === 'tint' || key === 'vibrance') {
-      (color as any)[key] = value;
-    } else if (key === 'sharpness' || key === 'noiseReduction' || key === 'clarity' || key === 'dehaze' || key === 'caCorrection') {
-      (details as any)[key] = value;
+    if (key in base) {
+      (base as any)[key] = value;
     }
   }
   
-  return {
-    ...base,
-    basic,
-    color,
-    details,
-  };
+  return base;
 }
 
 function makeSerialGraph(): NodeGraph {
@@ -69,10 +56,10 @@ describe('Node Graph v2 acceptance tests', () => {
     const res = evaluateNodeGraph(g);
 
     // last-writer-wins for "exposure" (N2 overrides N1)
-    expect(res.flattenedState.basic.exposure).toBe(0.8);
-    expect(res.flattenedState.basic.contrast).toBe(5);
-    expect(res.flattenedState.color.saturation).toBe(10);
-    expect(res.flattenedState.basic.shadows).toBe(-6); // N3 has shadows in basic
+    expect(res.flattenedState.exposure).toBe(0.8);
+    expect(res.flattenedState.contrast).toBe(5);
+    expect(res.flattenedState.saturation).toBe(10);
+    expect(res.flattenedState.shadows).toBe(-6); // N3 has shadows in basic
     expect(res.evaluatedNodeIds).toEqual(['N1', 'N2', 'N3']);
     expect(res.warnings.length).toBe(0);
   });
@@ -88,8 +75,8 @@ describe('Node Graph v2 acceptance tests', () => {
     expect(after.evaluatedNodeIds).toEqual(['N1', 'N3']);
 
     // exposure should now come from N1 instead of N2
-    expect(before.flattenedState.basic.exposure).toBe(0.8);
-    expect(after.flattenedState.basic.exposure).toBe(0.2);
+    expect(before.flattenedState.exposure).toBe(0.8);
+    expect(after.flattenedState.exposure).toBe(0.2);
   });
 
   it('3) Persistence integrity (graph + output stable after reopen)', () => {
