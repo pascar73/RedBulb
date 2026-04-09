@@ -414,7 +414,7 @@ class DevelopManager implements EditToolManager {
     // If not yet initialized (shouldn't happen, but safety fallback)
     if (!this._nodeGraph) {
       // Return a safe default — _ensureNodeGraph() should have been called in onActivate
-      return { version: 2, selectedNodeId: '', nodes: [], geometry: createDefaultGeometry() };
+      return { version: 2, selectedNodeId: "", nodes: [], connections: [], geometry: createDefaultGeometry() };
     }
     return this._nodeGraph;
   }
@@ -452,7 +452,20 @@ class DevelopManager implements EditToolManager {
 
     // Wrap current develop state into a v2 node graph
     const currentState = this.serialize();
-    this._nodeGraph = migrateV1toV2(currentState);
+    this._nodeGraph = {
+      version: 2,
+      selectedNodeId: 'node-01',
+      nodes: [{
+        id: 'node-01',
+        type: 'develop',
+        label: '01',
+        state: currentState as DevelopState,
+        bypass: false,
+        position: { x: 0, y: 0 }
+      }],
+      connections: buildSerialConnections(['node-01']),
+      geometry: createDefaultGeometry()
+    };
     this.selectedNodeId = this._nodeGraph.selectedNodeId;
   }
 
