@@ -9,6 +9,11 @@
  * - Selecting a node loads its state into the develop panel
  */
 
+let _nodeCounter = 0;
+
+
+export const NODE_W = 160;
+export const NODE_GAP = 24;
 // ══════════════════════════════════════════════════════════════
 // DEVELOP STATE V1 (Legacy Nested Format — kept for migration)
 // ══════════════════════════════════════════════════════════════
@@ -517,4 +522,167 @@ export function createDefaultGeometry(): GeometryState {
     horizontal: 0,
     scale: 1,
   };
+}
+
+
+// ══════════════════════════════════════════════════════════════
+export function validateConnection(
+  connections: NodeConnection[],
+  from: string,
+  to: string,
+): string | null {
+  // Check for self-loop
+  if (isSelfLoop(from, to)) {
+    return `Self-loop not allowed: ${from} → ${from}`;
+  }
+  
+  // Check for duplicate
+  if (hasConnection(connections, from, to)) {
+    return `Duplicate connection: ${from} → ${to}`;
+  }
+  
+  // Check if adding this connection would create a cycle
+  const testConns = [...connections, { from, to }];
+  if (hasCycle(testConns)) {
+    return `Cycle detected: adding ${from} → ${to} would create a loop`;
+  }
+  
+  return null; // Valid
+}
+
+// NODE GRAPH UTILITIES — restored for develop-manager compatibility
+// ══════════════════════════════════════════════════════════════
+
+export function createNode(label?: string, state?: DevelopState): CorrectorNode {
+  _nodeCounter++;
+  const num = String(_nodeCounter).padStart(2, '0');
+  return {
+    id: `node-${Date.now()}-${_nodeCounter}`,
+    label: label ?? num,
+    state: state ? JSON.parse(JSON.stringify(state)) : createEmptyDevelopState(),
+    bypass: false,
+    position: { x: (_nodeCounter - 1) * (NODE_W + NODE_GAP), y: 0 },
+  };
+}
+
+export function resetNodeCounter(count: number = 0): void {
+  _nodeCounter = count;
+}
+
+export function buildSerialConnections(
+  nodeIds: string[],
+  existingConnections?: NodeConnection[],
+): NodeConnection[] {
+  // If existing connections provided and already complete, return them
+  if (existingConnections && existingConnections.length > 0) {
+    // Check if existing connections already form a valid serial chain
+    const hasInput = existingConnections.some(c => c.from === "input");
+    const hasOutput = existingConnections.some(c => c.to === "output");
+    if (hasInput && hasOutput) {
+      // Assume existing connections are intentional, don't rebuild
+      return existingConnections;
+    }
+  }
+  
+  const conns: NodeConnection[] = [];
+  
+  if (nodeIds.length === 0) return conns;
+  
+  // input → first node
+  conns.push({ from: "input", to: nodeIds[0] });
+  
+  // node → node
+  for (let i = 0; i < nodeIds.length - 1; i++) {
+    conns.push({ from: nodeIds[i], to: nodeIds[i + 1] });
+  }
+  
+  // last node → output
+  conns.push({ from: nodeIds[nodeIds.length - 1], to: "output" });
+  
+  return conns;
+}
+
+export function insertNodeAfter(
+  connections: NodeConnection[],
+  newNodeId: string,
+  afterNodeId: string,
+): void {
+  // Find connection: afterNode → X
+  const outIndex = connections.findIndex(c => c.from === afterNodeId);
+  
+  if (outIndex >= 0) {
+    const nextNodeId = connections[outIndex].to;
+    
+    // Validate both connections before mutation
+    const err1 = validateConnection(
+      connections.filter((_, i) => i !== outIndex),
+      afterNodeId,
+      newNodeId,
+    );
+    const err2 = validateConnection(connections, newNodeId, nextNodeId);
+    
+    if (err1 || err2) {
+      console.warn(`insertNodeAfter validation failed: ${err1 || err2}`);
+      return;
+    }
+    
+    // Replace: afterNode → X with afterNode → newNode
+    connections[outIndex] = { from: afterNodeId, to: newNodeId };
+    // Add: newNode → X
+    connections.push({ from: newNodeId, to: nextNodeId });
+  } else {
+    // afterNode has no output, append to end
+    const err1 = validateConnection(connections, afterNodeId, newNodeId);
+    const err2 = validateConnection(connections, newNodeId, "output");
+    
+    if (err1 || err2) {
+      console.warn(`insertNodeAfter (append) validation failed: ${err1 || err2}`);
+      return;
+    }
+    
+    connections.push({ from: afterNodeId, to: newNodeId });
+    connections.push({ from: newNodeId, to: "output" });
+  }
+}
+
+export function appendNode(
+  connections: NodeConnection[],
+  newNodeId: string,
+): void {
+  // Find connection: X → output
+  const toOutputIndex = connections.findIndex(c => c.to === "output");
+  
+  if (toOutputIndex >= 0) {
+    const lastNodeId = connections[toOutputIndex].from;
+    
+    // Validate both connections before mutation
+    const err1 = validateConnection(
+      connections.filter((_, i) => i !== toOutputIndex),
+      lastNodeId,
+      newNodeId,
+    );
+    const err2 = validateConnection(connections, newNodeId, "output");
+    
+    if (err1 || err2) {
+      console.warn(`appendNode validation failed: ${err1 || err2}`);
+      return;
+    }
+    
+    // Replace: lastNode → output with lastNode → newNode
+    connections[toOutputIndex] = { from: lastNodeId, to: newNodeId };
+    // Add: newNode → output
+    connections.push({ from: newNodeId, to: "output" });
+  } else {
+    // No output connection yet, create chain
+    const err1 = validateConnection(connections, "input", newNodeId);
+    const err2 = validateConnection(connections, newNodeId, "output");
+    
+    if (err1 || err2) {
+      console.warn(`appendNode (new chain) validation failed: ${err1 || err2}`);
+      return;
+    }
+    
+    connections.push({ from: "input", to: newNodeId });
+    connections.push({ from: newNodeId, to: "output" });
+  }
 }
