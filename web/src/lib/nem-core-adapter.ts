@@ -1,144 +1,94 @@
 /**
  * nem-core-adapter.ts — Temporary adapter for web client ↔ @redbulb/nem-core
  * 
- * Web client uses nested DevelopState structure (basic: {}, color: {}, etc.)
- * NEM core uses flat DevelopState structure (exposure, temperature, etc.)
+ * Web client now uses flat DevelopState structure (matching @redbulb/nem-core)
+ * This adapter provides auto-migration for backward compatibility and minimal
+ * transformation for format differences.
  * 
- * This adapter provides bidirectional conversion until type unification is complete.
- * 
- * @deprecated TEMPORARY - Remove after Phase 2 type unification (target: Phase 2.3)
+ * @deprecated TEMPORARY - Remove after full migration confirmed (target: Phase 3 Day 4)
  * @see ADAPTER-REMOVAL-TICKET.md
  * @see ADAPTER-TOUCHPOINTS.md
  */
 
-import type { DevelopState as WebDevelopState } from './components/asset-viewer/editor/node-types';
+import type { DevelopState as WebDevelopState, DevelopStateV1 } from './components/asset-viewer/editor/node-types';
 import type { DevelopState as CoreDevelopState } from '@redbulb/nem-core';
+import { autoMigrateDevelopState, isDevelopStateV1 } from './migration/migrate-develop-state';
 
 /**
- * Convert web client nested DevelopState to NEM core flat structure
+ * Convert web client DevelopState to NEM core format
+ * Auto-migrates V1 nested format to flat if needed
  * 
- * @deprecated TEMPORARY - Remove after Phase 2 type unification
- * @see ADAPTER-REMOVAL-TICKET.md
+ * @deprecated TEMPORARY - Remove after Phase 3 migration
  */
-export function webToCore(web: WebDevelopState): CoreDevelopState {
+export function webToCore(web: WebDevelopState | DevelopStateV1): CoreDevelopState {
+  // Auto-migrate V1 nested format to flat
+  const flat = isDevelopStateV1(web) ? autoMigrateDevelopState(web) : web;
+  
   return {
-    // Basic adjustments
-    exposure: web.basic.exposure,
-    contrast: web.basic.contrast,
-    highlights: web.basic.highlights,
-    shadows: web.basic.shadows,
-    whites: web.basic.whites,
-    blacks: web.basic.blacks,
+    // 13 top-level scalars
+    exposure: flat.exposure,
+    contrast: flat.contrast,
+    highlights: flat.highlights,
+    shadows: flat.shadows,
+    whites: flat.whites,
+    blacks: flat.blacks,
+    temperature: flat.temperature,
+    tint: flat.tint,
+    saturation: flat.saturation,
+    vibrance: flat.vibrance,
+    hue: flat.hue ?? 0,
+    clarity: flat.clarity,
+    dehaze: flat.dehaze,
     
-    // Color adjustments
-    temperature: web.color.temperature,
-    tint: web.color.tint,
-    saturation: web.color.saturation,
-    vibrance: web.color.vibrance,
-    hue: 0, // Not in web client yet
+    // Optional groups
+    details: flat.details,
+    effects: flat.effects,
     
-    // Details
-    clarity: web.details.clarity,
-    dehaze: web.details.dehaze,
+    // Curves and color wheels
+    curves: flat.curves,
+    curveEndpoints: flat.curveEndpoints,
+    colorWheels: flat.colorWheels,
+    hsl: flat.hsl,
     
-    // Curves
-    curves: web.curves,
-    curveEndpoints: web.curveEndpoints,
-    
-    // Color wheels
-    colorWheels: web.colorWheels,
-    
-    // HSL
-    hsl: web.hsl,
-    
-    // Effects (map web fields to core)
-    effects: {
-      vignette: web.effects.vignette,
-      vignetteMidpoint: web.effects.vignetteMidpoint,
-      vignetteRoundness: web.effects.vignetteRoundness,
-      vignetteFeather: web.effects.vignetteFeather,
-      vignetteHighlights: web.effects.vignetteHighlights,
-      grain: web.effects.grain,
-      grainSize: web.effects.grainSize,
-      grainRoughness: web.effects.grainRoughness,
-      fade: web.effects.fade,
-    },
-    
-    // Details (additional fields)
-    details: {
-      texture: web.effects.texture, // Web stores texture in effects
-      sharpness: web.details.sharpness,
-      noiseReduction: web.details.noiseReduction,
-      clarity: web.details.clarity,
-    },
-    
-    // Tone mapper (pass through directly)
-    toneMapper: web.toneMapper,
+    // Tone mapper
+    toneMapper: flat.toneMapper,
   };
 }
 
 /**
- * Convert NEM core flat DevelopState to web client nested structure
+ * Convert NEM core DevelopState to web client format
+ * Both are now flat, so this is mostly pass-through
  * 
- * @deprecated TEMPORARY - Remove after Phase 2 type unification
- * @see ADAPTER-REMOVAL-TICKET.md
+ * @deprecated TEMPORARY - Remove after Phase 3 migration
  */
 export function coreToWeb(core: CoreDevelopState): WebDevelopState {
   return {
-    version: 1,
-    basic: {
-      exposure: core.exposure,
-      contrast: core.contrast,
-      highlights: core.highlights,
-      shadows: core.shadows,
-      whites: core.whites,
-      blacks: core.blacks,
-      brightness: 0, // Not in core yet
-    },
-    color: {
-      saturation: core.saturation,
-      temperature: core.temperature,
-      tint: core.tint,
-      vibrance: core.vibrance,
-    },
-    // Web only supports 'none' | 'filmic', filter core values
-    toneMapper: (core.toneMapper === 'filmic' ? 'filmic' : 'none') as 'none' | 'filmic',
-    details: {
-      sharpness: core.details?.sharpness || 0,
-      noiseReduction: core.details?.noiseReduction || 0,
-      clarity: core.clarity,
-      dehaze: core.dehaze,
-      caCorrection: 0, // Not in core yet
-    },
-    effects: {
-      texture: core.details?.texture || 0, // Core stores texture in details
-      vignette: core.effects?.vignette || 0,
-      vignetteMidpoint: core.effects?.vignetteMidpoint || 0,
-      vignetteRoundness: core.effects?.vignetteRoundness || 0,
-      vignetteFeather: core.effects?.vignetteFeather || 0,
-      vignetteHighlights: core.effects?.vignetteHighlights || 0,
-      grain: core.effects?.grain || 0,
-      grainSize: core.effects?.grainSize || 0,
-      grainRoughness: core.effects?.grainRoughness || 0,
-      fade: core.effects?.fade || 0,
-    },
-    curves: {
-      master: core.curves?.master || [],
-      red: core.curves?.red || [],
-      green: core.curves?.green || [],
-      blue: core.curves?.blue || [],
-    },
-    curveEndpoints: {
-      master: core.curveEndpoints?.master || { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
-      red: core.curveEndpoints?.red || { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
-      green: core.curveEndpoints?.green || { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
-      blue: core.curveEndpoints?.blue || { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } },
-    },
-    colorWheels: {
-      shadows: core.colorWheels?.shadows || { hue: 0, sat: 0, lum: 0 },
-      midtones: core.colorWheels?.midtones || { hue: 0, sat: 0, lum: 0 },
-      highlights: core.colorWheels?.highlights || { hue: 0, sat: 0, lum: 0 },
-    },
-    hsl: core.hsl || {},
+    // 13 top-level scalars
+    exposure: core.exposure,
+    contrast: core.contrast,
+    highlights: core.highlights,
+    shadows: core.shadows,
+    whites: core.whites,
+    blacks: core.blacks,
+    temperature: core.temperature,
+    tint: core.tint,
+    saturation: core.saturation,
+    vibrance: core.vibrance,
+    hue: core.hue ?? 0,
+    clarity: core.clarity,
+    dehaze: core.dehaze,
+    
+    // Optional groups
+    details: core.details,
+    effects: core.effects,
+    
+    // Curves and color wheels
+    curves: core.curves,
+    curveEndpoints: core.curveEndpoints,
+    colorWheels: core.colorWheels,
+    hsl: core.hsl,
+    
+    // Tone mapper
+    toneMapper: core.toneMapper,
   };
 }

@@ -8,6 +8,7 @@ import {
   hasCycle,
   MAX_NODES, NODE_W, NODE_GAP, TOP_PAD, SIDE_PAD,
 } from '$lib/components/asset-viewer/editor/node-types';
+import { autoMigrateDevelopState, isDevelopStateV1 } from '$lib/migration/migrate-develop-state';
 import { evaluateNodeGraph } from '$lib/components/asset-viewer/editor/node-graph-evaluate';
 import type { EvalOptions } from '$lib/components/asset-viewer/editor/node-graph-types';
 import { redBulbFetch } from '$lib/utils/redbulb-api';
@@ -31,7 +32,6 @@ class DevelopManager implements EditToolManager {
   shadows = $state(0);
   whites = $state(0);
   blacks = $state(0);
-  brightness = $state(0);
 
   // Color adjustment parameters
   saturation = $state(0);
@@ -55,13 +55,13 @@ class DevelopManager implements EditToolManager {
   dehaze = $state(0);
 
   // Lens corrections
-  caCorrection = $state(0);
 
   // Tone mapper: 'none' = standard, 'filmic' = AgX film-like
   toneMapper = $state<'none' | 'filmic'>('none');
 
   // Tone parameters
   vibrance = $state(0);
+  hue = $state(0);
   tint = $state(0);
 
   // Effects parameters
@@ -122,17 +122,16 @@ class DevelopManager implements EditToolManager {
       this.shadows !== 0 ||
       this.whites !== 0 ||
       this.blacks !== 0 ||
-      this.brightness !== 0 ||
       this.saturation !== 0 ||
       this.temperature !== 0 ||
       this.sharpness !== 0 ||
       this.noiseReduction !== 0 ||
       this.clarity !== 0 ||
       this.dehaze !== 0 ||
-      this.caCorrection !== 0 ||
       this.toneMapper !== 'none' ||
       this.vibrance !== 0 ||
       this.tint !== 0 ||
+      this.hue !== 0 ||
       this.texture !== 0 ||
       this.vignette !== 0 ||
       this.vignetteMidpoint !== 50 ||
@@ -180,19 +179,8 @@ class DevelopManager implements EditToolManager {
     // FIX: Also check if any node in the chain has changes (not just current panel)
     // This ensures preview stays visible even when selecting an empty node
     const hasNodeChainChanges = this._nodeGraph?.nodes.some(node => {
-      if (node.bypass) return false; // Bypassed nodes don't contribute
-      const s = node.state;
-      return (
-        s.basic.exposure !== 0 || s.basic.contrast !== 0 || s.basic.highlights !== 0 ||
-        s.basic.shadows !== 0 || s.basic.whites !== 0 || s.basic.blacks !== 0 ||
-        s.basic.brightness !== 0 || s.basic.saturation !== 0 || s.basic.temperature !== 0 ||
-        s.basic.sharpness !== 0 || s.basic.noiseReduction !== 0 || s.basic.clarity !== 0 ||
-        s.basic.dehaze !== 0 || s.basic.caCorrection !== 0 || s.basic.vibrance !== 0 ||
-        s.basic.tint !== 0 || s.toneMapper !== 'none' ||
-        s.curves.master.length > 0 || s.curves.red.length > 0 ||
-        s.curves.green.length > 0 || s.curves.blue.length > 0 ||
-        s.details.texture !== 0 || s.effects.vignette !== 0 || s.effects.grain !== 0 || s.effects.fade !== 0
-      );
+      if (node.bypass) return false;
+      return hasActiveChanges(node.state);
     }) ?? false;
 
     return hasParamChanges || hasCurveChanges || hasColorWheelChanges || hasHslChanges || hasEndpointChanges || hasGeoChanges || hasNodeChainChanges;
@@ -222,17 +210,16 @@ class DevelopManager implements EditToolManager {
     shadows: this.shadows,
     whites: this.whites,
     blacks: this.blacks,
-    brightness: this.brightness,
     saturation: this.saturation,
     temperature: this.temperature,
     sharpness: this.sharpness,
     noiseReduction: this.noiseReduction,
     clarity: this.clarity,
     dehaze: this.dehaze,
-    caCorrection: this.caCorrection,
     toneMapper: this.toneMapper,
     vibrance: this.vibrance,
     tint: this.tint,
+    hue: this.hue,
     texture: this.texture,
     vignette: this.vignette,
     vignetteMidpoint: this.vignetteMidpoint,
@@ -623,17 +610,16 @@ class DevelopManager implements EditToolManager {
     this.shadows = 0;
     this.whites = 0;
     this.blacks = 0;
-    this.brightness = 0;
     this.saturation = 0;
     this.temperature = 0;
     this.sharpness = 0;
     this.noiseReduction = 0;
     this.clarity = 0;
     this.dehaze = 0;
-    this.caCorrection = 0;
     this.toneMapper = 'none';
     this.vibrance = 0;
     this.tint = 0;
+    this.hue = 0;
     this.texture = 0;
     this.vignette = 0;
     this.vignetteMidpoint = 50;
@@ -758,34 +744,35 @@ class DevelopManager implements EditToolManager {
   }
 
   /** Serialize current PANEL state as v1 (used internally and by workers) */
+  /** Serialize current PANEL state as flat canonical format */
   serialize(): Record<string, unknown> {
     return {
-      version: 1,
-      basic: {
-        exposure: this.exposure,
-        contrast: this.contrast,
-        highlights: this.highlights,
-        shadows: this.shadows,
-        whites: this.whites,
-        blacks: this.blacks,
-        brightness: this.brightness,
-      },
-      color: {
-        saturation: this.saturation,
-        temperature: this.temperature,
-        tint: this.tint,
-        vibrance: this.vibrance,
-      },
-      toneMapper: this.toneMapper,
+      // 13 top-level scalars
+      exposure: this.exposure,
+      contrast: this.contrast,
+      highlights: this.highlights,
+      shadows: this.shadows,
+      whites: this.whites,
+      blacks: this.blacks,
+      temperature: this.temperature,
+      tint: this.tint,
+    hue: this.hue,
+      saturation: this.saturation,
+      vibrance: this.vibrance,
+      hue: this.hue,
+      clarity: this.clarity,
+      dehaze: this.dehaze,
+
+      // Optional details (texture moved here from effects)
       details: {
+        texture: this.texture,
         sharpness: this.sharpness,
         noiseReduction: this.noiseReduction,
         clarity: this.clarity,
-        dehaze: this.dehaze,
-        caCorrection: this.caCorrection,
       },
+
+      // Optional effects (no texture)
       effects: {
-        texture: this.texture,
         vignette: this.vignette,
         vignetteMidpoint: this.vignetteMidpoint,
         vignetteRoundness: this.vignetteRoundness,
@@ -796,6 +783,8 @@ class DevelopManager implements EditToolManager {
         grainRoughness: this.grainRoughness,
         fade: this.fade,
       },
+
+      toneMapper: this.toneMapper,
       geometry: {
         rotation: this.geoRotation,
         distortion: this.geoDistortion,
@@ -840,91 +829,87 @@ class DevelopManager implements EditToolManager {
   }
 
   /** Internal: deserialize v1 panel state */
+  /** Internal: deserialize panel state (auto-migrates V1 nested → flat) */
   private _deserializeV1(d: any): void {
+    // Auto-detect V1 nested format and migrate to flat
+    const flat: any = isDevelopStateV1(d) ? autoMigrateDevelopState(d) : d;
 
-    // Basic
-    if (d.basic) {
-      this.exposure = d.basic.exposure ?? 0;
-      this.contrast = d.basic.contrast ?? 0;
-      this.highlights = d.basic.highlights ?? 0;
-      this.shadows = d.basic.shadows ?? 0;
-      this.whites = d.basic.whites ?? 0;
-      this.blacks = d.basic.blacks ?? 0;
-      this.brightness = d.basic.brightness ?? 0;
-    }
-
-    // Color
-    if (d.color) {
-      this.saturation = d.color.saturation ?? 0;
-      this.temperature = d.color.temperature ?? 0;
-      this.tint = d.color.tint ?? 0;
-      this.vibrance = d.color.vibrance ?? 0;
-    }
+    // 13 top-level scalars
+    this.exposure = flat.exposure ?? 0;
+    this.contrast = flat.contrast ?? 0;
+    this.highlights = flat.highlights ?? 0;
+    this.shadows = flat.shadows ?? 0;
+    this.whites = flat.whites ?? 0;
+    this.blacks = flat.blacks ?? 0;
+    this.temperature = flat.temperature ?? 0;
+    this.tint = flat.tint ?? 0;
+    this.saturation = flat.saturation ?? 0;
+    this.vibrance = flat.vibrance ?? 0;
+    this.hue = flat.hue ?? 0;
+    this.clarity = flat.clarity ?? 0;
+    this.dehaze = flat.dehaze ?? 0;
 
     // Tone mapper
-    this.toneMapper = d.toneMapper ?? 'none';
+    this.toneMapper = flat.toneMapper ?? 'none';
 
-    // Details
-    if (d.details) {
-      this.sharpness = d.details.sharpness ?? 0;
-      this.noiseReduction = d.details.noiseReduction ?? 0;
-      this.clarity = d.details.clarity ?? 0;
-      this.dehaze = d.details.dehaze ?? 0;
-      this.caCorrection = d.details.caCorrection ?? 0;
+    // Optional details group
+    if (flat.details) {
+      this.texture = flat.details.texture ?? 0;
+      this.sharpness = flat.details.sharpness ?? 0;
+      this.noiseReduction = flat.details.noiseReduction ?? 0;
     }
 
-    // Effects
-    if (d.effects) {
-      this.texture = d.effects.texture ?? 0;
-      this.vignette = d.effects.vignette ?? 0;
-      this.vignetteMidpoint = d.effects.vignetteMidpoint ?? 50;
-      this.vignetteRoundness = d.effects.vignetteRoundness ?? 0;
-      this.vignetteFeather = d.effects.vignetteFeather ?? 50;
-      this.vignetteHighlights = d.effects.vignetteHighlights ?? 0;
-      this.grain = d.effects.grain ?? 0;
-      this.grainSize = d.effects.grainSize ?? 25;
-      this.grainRoughness = d.effects.grainRoughness ?? 50;
-      this.fade = d.effects.fade ?? 0;
+    // Optional effects group
+    if (flat.effects) {
+      this.vignette = flat.effects.vignette ?? 0;
+      this.vignetteMidpoint = flat.effects.vignetteMidpoint ?? 50;
+      this.vignetteRoundness = flat.effects.vignetteRoundness ?? 0;
+      this.vignetteFeather = flat.effects.vignetteFeather ?? 50;
+      this.vignetteHighlights = flat.effects.vignetteHighlights ?? 0;
+      this.grain = flat.effects.grain ?? 0;
+      this.grainSize = flat.effects.grainSize ?? 25;
+      this.grainRoughness = flat.effects.grainRoughness ?? 50;
+      this.fade = flat.effects.fade ?? 0;
     }
 
     // Geometry
-    if (d.geometry) {
-      this.geoRotation = d.geometry.rotation ?? 0;
-      this.geoDistortion = d.geometry.distortion ?? 0;
-      this.geoVertical = d.geometry.vertical ?? 0;
-      this.geoHorizontal = d.geometry.horizontal ?? 0;
-      this.geoScale = d.geometry.scale ?? 100;
+    if (flat.geometry) {
+      this.geoRotation = flat.geometry.rotation ?? 0;
+      this.geoDistortion = flat.geometry.distortion ?? 0;
+      this.geoVertical = flat.geometry.vertical ?? 0;
+      this.geoHorizontal = flat.geometry.horizontal ?? 0;
+      this.geoScale = flat.geometry.scale ?? 100;
     }
 
     // Curves
-    if (d.curves) {
-      this.curves.master = d.curves.master ?? [];
-      this.curves.red = d.curves.red ?? [];
-      this.curves.green = d.curves.green ?? [];
-      this.curves.blue = d.curves.blue ?? [];
+    if (flat.curves) {
+      this.curves.master = flat.curves.master ?? [];
+      this.curves.red = flat.curves.red ?? [];
+      this.curves.green = flat.curves.green ?? [];
+      this.curves.blue = flat.curves.blue ?? [];
     }
 
     // Curve endpoints
-    if (d.curveEndpoints) {
+    if (flat.curveEndpoints) {
       const defEp = { black: { x: 0, y: 0 }, white: { x: 1, y: 1 } };
-      this.curveEndpoints.master = d.curveEndpoints.master ?? defEp;
-      this.curveEndpoints.red = d.curveEndpoints.red ?? defEp;
-      this.curveEndpoints.green = d.curveEndpoints.green ?? defEp;
-      this.curveEndpoints.blue = d.curveEndpoints.blue ?? defEp;
+      this.curveEndpoints.master = flat.curveEndpoints.master ?? defEp;
+      this.curveEndpoints.red = flat.curveEndpoints.red ?? defEp;
+      this.curveEndpoints.green = flat.curveEndpoints.green ?? defEp;
+      this.curveEndpoints.blue = flat.curveEndpoints.blue ?? defEp;
     }
 
     // Color wheels
-    if (d.colorWheels) {
-      this.colorWheels.shadows = d.colorWheels.shadows ?? { hue: 0, sat: 0, lum: 0 };
-      this.colorWheels.midtones = d.colorWheels.midtones ?? { hue: 0, sat: 0, lum: 0 };
-      this.colorWheels.highlights = d.colorWheels.highlights ?? { hue: 0, sat: 0, lum: 0 };
+    if (flat.colorWheels) {
+      this.colorWheels.shadows = flat.colorWheels.shadows ?? { hue: 0, sat: 0, lum: 0 };
+      this.colorWheels.midtones = flat.colorWheels.midtones ?? { hue: 0, sat: 0, lum: 0 };
+      this.colorWheels.highlights = flat.colorWheels.highlights ?? { hue: 0, sat: 0, lum: 0 };
     }
 
     // HSL
-    if (d.hsl) {
+    if (flat.hsl) {
       for (const channel of Object.keys(this.hsl)) {
-        if (d.hsl[channel]) {
-          this.hsl[channel as keyof typeof this.hsl] = d.hsl[channel];
+        if (flat.hsl[channel]) {
+          this.hsl[channel] = flat.hsl[channel];
         }
       }
     }
