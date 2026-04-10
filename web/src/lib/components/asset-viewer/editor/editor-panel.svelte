@@ -1,10 +1,14 @@
 <script lang="ts">
   import { shortcut } from '$lib/actions/shortcut';
   import { editManager, EditToolType } from '$lib/managers/edit/edit-manager.svelte';
+  import { developManager } from '$lib/managers/edit/develop-manager.svelte';
+  import ZoomControl from './develop-tool/zoom-control.svelte';
+  import InfoPanel from './info-panel.svelte';
   import { websocketEvents } from '$lib/stores/websocket';
   import { getAssetEdits, type AssetResponseDto } from '@immich/sdk';
-  import { Button, HStack, IconButton } from '@immich/ui';
-  import { mdiClose } from '@mdi/js';
+  import { Button, HStack, IconButton, toastManager } from '@immich/ui';
+  import { mdiClose, mdiExport, mdiInformationOutline } from '@mdi/js';
+  import ExportDialog from './export-dialog.svelte';
   import { onDestroy, onMount } from 'svelte';
   import { t } from 'svelte-i18n';
 
@@ -30,12 +34,17 @@
     editManager.cleanup();
   });
 
-  async function applyEdits() {
-    const success = await editManager.applyEdits();
+  let showExportDialog = $state(false);
+  let showInfoTab = $state(false);
 
-    if (success) {
-      onClose();
+  async function applyEdits() {
+    // For non-develop tools (Transform), use standard Immich server-side edit
+    if (!developManager.hasChanges) {
+      const success = await editManager.applyEdits();
+      if (success) onClose();
     }
+    // Develop edits are auto-saved — just close
+    onClose();
   }
 
   async function closeEditor() {
@@ -49,7 +58,7 @@
 
 <svelte:document use:shortcut={{ shortcut: { key: 'Escape' }, onShortcut: onClose }} />
 
-<section class="relative flex flex-col h-full p-2 dark:bg-immich-dark-bg dark:text-immich-dark-fg dark pt-3">
+<section class="relative flex flex-col h-full p-2 bg-immich-dark-bg text-immich-dark-fg dark pt-3 overflow-x-hidden overflow-y-auto">
   <HStack class="justify-between me-4">
     <HStack>
       <IconButton
@@ -62,11 +71,53 @@
       />
       <p class="text-lg text-immich-fg dark:text-immich-dark-fg capitalize">{$t('editor')}</p>
     </HStack>
-    <Button shape="round" size="small" onclick={applyEdits} loading={editManager.isApplyingEdits}>{$t('save')}</Button>
+    <HStack gap={2}>
+      {#if editManager.selectedTool?.type === EditToolType.Develop}
+        <ZoomControl />
+      {/if}
+      {#if editManager.selectedTool?.type === EditToolType.Develop}
+        <IconButton
+          shape="round"
+          size="small"
+          icon={mdiExport}
+          title="Export"
+          onclick={() => (showExportDialog = true)}
+        />
+      {:else}
+        <Button shape="round" size="small" onclick={applyEdits} loading={editManager.isApplyingEdits}>
+          {$t('save')}
+        </Button>
+      {/if}
+    </HStack>
+  </HStack>
+
+  <!-- Tool Tabs -->
+  <HStack class="px-4 mt-4 gap-2">
+    {#each editManager.tools as tool}
+      <IconButton
+        shape="round"
+        variant={!showInfoTab && editManager.selectedTool?.type === tool.type ? 'filled' : 'outline'}
+        color={!showInfoTab && editManager.selectedTool?.type === tool.type ? 'primary' : 'secondary'}
+        icon={tool.icon}
+        onclick={() => { showInfoTab = false; editManager.activateTool(tool.type, asset, { edits: [] }); }}
+      />
+    {/each}
+    <div class="ml-auto">
+      <IconButton
+        shape="round"
+        variant={showInfoTab ? 'filled' : 'outline'}
+        color={showInfoTab ? 'primary' : 'secondary'}
+        icon={mdiInformationOutline}
+        onclick={() => (showInfoTab = !showInfoTab)}
+        title="File & EXIF Info"
+      />
+    </div>
   </HStack>
 
   <section>
-    {#if editManager.selectedTool}
+    {#if showInfoTab}
+      <InfoPanel {asset} />
+    {:else if editManager.selectedTool}
       <editManager.selectedTool.component />
     {/if}
   </section>
@@ -84,3 +135,7 @@
     </Button>
   </section>
 </section>
+
+{#if showExportDialog}
+  <ExportDialog {asset} onClose={() => (showExportDialog = false)} />
+{/if}

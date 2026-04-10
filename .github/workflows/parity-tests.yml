@@ -1,0 +1,87 @@
+name: Parity Tests
+
+on:
+  push:
+    branches: [ main, phase-* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  parity:
+    name: Preview/Export Parity Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          lfs: true
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      - name: Install parity test dependencies
+        run: |
+          cd tests/parity
+          npm install
+      
+      - name: Run parity tests
+        id: parity
+        run: |
+          cd tests/parity
+          npm run test:parity || echo "PARITY_FAILED=true" >> $GITHUB_ENV
+        continue-on-error: true
+      
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-test-report
+          path: tests/parity/reports/
+          retention-days: 30
+      
+      - name: Upload diff images
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-diff-images
+          path: tests/parity/reports/diffs/
+          retention-days: 30
+      
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request' && failure()
+        continue-on-error: true
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.name,
+              body: '❌ **Parity tests failed!**\n\n' +
+                    'Preview and export do not match within acceptable tolerance.\n\n' +
+                    'Download the test report and diff images from the workflow artifacts to diagnose.\n\n' +
+                    '**Required action:** Fix parity issues before merge.'
+            })
+      
+      - name: Fail if parity failed
+        if: env.PARITY_FAILED == 'true'
+        run: |
+          echo "::error::Parity tests failed - preview and export do not match"
+          exit 1
+      
+      - name: Success comment
+        if: github.event_name == 'pull_request' && success()
+        continue-on-error: true
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.name,
+              body: '✅ **Parity tests passed!**\n\n' +
+                    'Preview and export match within acceptable tolerance.'
+            })

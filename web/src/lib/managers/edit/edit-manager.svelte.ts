@@ -1,11 +1,13 @@
 import TransformTool from '$lib/components/asset-viewer/editor/transform-tool/transform-tool.svelte';
+import DevelopTool from '$lib/components/asset-viewer/editor/develop-tool/develop-tool.svelte';
 import { transformManager } from '$lib/managers/edit/transform-manager.svelte';
+import { developManager } from '$lib/managers/edit/develop-manager.svelte';
 import { eventManager } from '$lib/managers/event-manager.svelte';
 import { waitForWebsocketEvent } from '$lib/stores/websocket';
 import { getFormatter } from '$lib/utils/i18n';
 import { editAsset, removeAssetEdits, type AssetEditsCreateDto, type AssetResponseDto } from '@immich/sdk';
 import { ConfirmModal, modalManager, toastManager } from '@immich/ui';
-import { mdiCropRotate } from '@mdi/js';
+import { mdiCropRotate, mdiTune } from '@mdi/js';
 import type { Component } from 'svelte';
 
 export type EditAction = AssetEditsCreateDto['edits'][number];
@@ -18,10 +20,13 @@ export interface EditToolManager {
   hasChanges: boolean;
   canReset: boolean;
   edits: EditAction[];
+  /** Optional: for tools with auto-save, can override to return false even when hasChanges is true */
+  hasUnsavedChanges?: boolean;
 }
 
 export enum EditToolType {
   Transform = 'transform',
+  Develop = 'develop',
 }
 
 export interface EditTool {
@@ -39,6 +44,12 @@ export class EditManager {
       component: TransformTool,
       manager: transformManager,
     },
+    {
+      type: EditToolType.Develop,
+      icon: mdiTune,
+      component: DevelopTool,
+      manager: developManager,
+    },
   ];
 
   currentAsset = $state<AssetResponseDto | null>(null);
@@ -49,7 +60,9 @@ export class EditManager {
   isApplyingEdits = $state(false);
   hasAppliedEdits = $state(false);
 
-  hasUnsavedChanges = $derived(this.tools.some((t) => t.manager.hasChanges) && !this.hasAppliedEdits);
+  hasUnsavedChanges = $derived(
+    this.tools.some((t) => t.manager.hasUnsavedChanges ?? t.manager.hasChanges) && !this.hasAppliedEdits,
+  );
   canReset = $derived(this.tools.some((t) => t.manager.canReset));
 
   async closeConfirm(): Promise<boolean> {
