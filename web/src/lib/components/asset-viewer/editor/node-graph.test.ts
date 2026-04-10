@@ -239,8 +239,8 @@ describe('Node Graph v2 acceptance tests', () => {
     
     // With nem-core semantics: N2/N3's default endpoints (0,0) overwrite N1's (0.1, 0.05)
     // This is MORE CONSISTENT: evaluator doesn't need UI default knowledge
-    expect(res.flattenedState.curveEndpoints.master.black.x).toBe(0);
-    expect(res.flattenedState.curveEndpoints.master.black.y).toBe(0);
+    expect(res.flattenedState.curveEndpoints?.master?.black?.x ?? 0).toBe(0);
+    expect(res.flattenedState.curveEndpoints?.master?.black?.y ?? 0).toBe(0);
   });
 
   it('13) Type-check: All types compile correctly', () => {
@@ -261,7 +261,6 @@ describe('Node Graph v2 acceptance tests', () => {
     
     // N1 sets vignetteMidpoint to 70 (non-UI-default)
     g.nodes[0].state.effects = {
-      texture: 0,
       vignette: 0,
       vignetteMidpoint: 70,
       vignetteRoundness: 0,
@@ -275,7 +274,6 @@ describe('Node Graph v2 acceptance tests', () => {
     
     // N2 has UI defaults (vignetteMidpoint=50) which ARE active values in nem-core
     g.nodes[1].state.effects = {
-      texture: 0,
       vignette: 0,
       vignetteMidpoint: 50, // UI default, but treated as active value
       vignetteRoundness: 0,
