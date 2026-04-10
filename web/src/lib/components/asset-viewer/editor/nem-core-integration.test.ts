@@ -15,7 +15,7 @@ vi.mock('@redbulb/nem-core', async () => {
   const actual = await vi.importActual('@redbulb/nem-core');
   return {
     ...actual,
-    evaluateNodeGraph: vi.fn(actual.evaluateNodeGraph),
+    evaluateNodeGraph: vi.fn(actual.evaluateNodeGraph as any),
   };
 });
 

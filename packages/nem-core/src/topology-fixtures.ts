@@ -16,9 +16,10 @@ import type { NodeGraph, Node, DevelopState } from './types';
 export function createTestNode(id: string, state: Partial<DevelopState> = {}): Node {
   return {
     id,
-    type: 'develop',
+    label: id,
     state: { ...createNeutralDevelopState(), ...state },
     bypass: false,
+    position: { x: 0, y: 0 },
   };
 }
 
