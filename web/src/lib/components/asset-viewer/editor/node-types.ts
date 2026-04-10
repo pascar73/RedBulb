@@ -529,6 +529,25 @@ export function createDefaultGeometry(): GeometryState {
 
 
 // ══════════════════════════════════════════════════════════════
+
+/**
+ * Check if a connection would create a self-loop
+ */
+function isSelfLoop(from: string, to: string): boolean {
+  return from === to;
+}
+
+/**
+ * Check if a connection already exists
+ */
+function hasConnection(
+  connections: NodeConnection[],
+  from: string,
+  to: string,
+): boolean {
+  return connections.some(c => c.from === from && c.to === to);
+}
+
 export function validateConnection(
   connections: NodeConnection[],
   from: string,

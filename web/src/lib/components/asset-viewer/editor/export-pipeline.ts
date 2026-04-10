@@ -121,6 +121,7 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
   onProgress?.(`Processing ${fullW}×${fullH}...`, 15);
 
   // Warn about huge images (bilateral filters are O(n²) expensive)
+  const resizeMode = options.resizeMode ?? 'original';
   const megapixels = (fullW * fullH) / 1_000_000;
   if (megapixels > 30 && resizeMode === 'original') {
     console.warn(`[Export] Very large image (${megapixels.toFixed(1)} MP). Export may take several minutes. Consider resizing.`);
@@ -128,7 +129,6 @@ export async function exportDevelopedImage(options: ExportOptions): Promise<Blob
 
   // ── Stage 2: Resize FIRST if needed (before expensive worker processing) ──
   // This dramatically speeds up export by running blur/NR on fewer pixels
-  const resizeMode = options.resizeMode ?? 'original';
   let processW = fullW;
   let processH = fullH;
   const aspect = fullW / fullH;
