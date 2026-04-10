@@ -163,8 +163,6 @@ const fixtures: DualPathFixture[] = [
       geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     serverGraph: {
-      version: 2,
-      selectedNodeId: "",
       nodes: [
         createServerNode('node1', {
           exposure: 1.5,
@@ -176,7 +174,6 @@ const fixtures: DualPathFixture[] = [
         { from: 'input', to: 'node1' },
         { from: 'node1', to: 'output' },
       ],
-      geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     expectedExposure: 1.5,
     expectedContrast: 20,
@@ -200,8 +197,6 @@ const fixtures: DualPathFixture[] = [
       geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     serverGraph: {
-      version: 2,
-      selectedNodeId: "",
       nodes: [
         createServerNode('node1', {
           temperature: 5500,
@@ -214,7 +209,6 @@ const fixtures: DualPathFixture[] = [
         { from: 'input', to: 'node1' },
         { from: 'node1', to: 'output' },
       ],
-      geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     expectedTemperature: 5500,
     expectedSaturation: 15,
@@ -238,8 +232,6 @@ const fixtures: DualPathFixture[] = [
       geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     serverGraph: {
-      version: 2,
-      selectedNodeId: "",
       nodes: [
         createServerNode('node1', { exposure: 1.0, contrast: 20 }),
         createServerNode('node2', { exposure: 0, contrast: 30 }),
@@ -249,7 +241,6 @@ const fixtures: DualPathFixture[] = [
         { from: 'node1', to: 'node2' },
         { from: 'node2', to: 'output' },
       ],
-      geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     expectedExposure: 1.0, // From node1 (node2's 0 doesn't overwrite)
     expectedContrast: 30, // From node2 (overwrites node1)
@@ -273,8 +264,6 @@ const fixtures: DualPathFixture[] = [
       geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     serverGraph: {
-      version: 2,
-      selectedNodeId: "",
       nodes: [
         createServerNode('node1', { temperature: 5500, saturation: 10 }),
         createServerNode('node2', { temperature: 6500, saturation: 15 }),
@@ -284,7 +273,6 @@ const fixtures: DualPathFixture[] = [
         { from: 'node1', to: 'node2' },
         { from: 'node2', to: 'output' },
       ],
-      geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     expectedTemperature: 5500, // From node1 (node2's 6500 is neutral)
     expectedSaturation: 15, // From node2 (overwrites node1)
@@ -310,8 +298,6 @@ const fixtures: DualPathFixture[] = [
       geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     serverGraph: {
-      version: 2,
-      selectedNodeId: "",
       nodes: [
         createServerNode('node1', { exposure: 1.0, contrast: 20 }),
         createServerNode('node2', { contrast: 30, highlights: -10 }),
@@ -323,7 +309,6 @@ const fixtures: DualPathFixture[] = [
         { from: 'node2', to: 'node3' },
         { from: 'node3', to: 'output' },
       ],
-      geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     expectedExposure: 1.5, // From node3 (last non-zero)
     expectedContrast: 30, // From node2 (node3 doesn't set it)
@@ -344,11 +329,8 @@ const fixtures: DualPathFixture[] = [
       geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     serverGraph: {
-      version: 2,
-      selectedNodeId: "",
       nodes: [],
       connections: [],
-      geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     expectedExposure: 0,
     expectedTemperature: 6500,
@@ -372,8 +354,6 @@ const fixtures: DualPathFixture[] = [
       geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     serverGraph: {
-      version: 2,
-      selectedNodeId: "",
       nodes: [
         createServerNode('node1', { exposure: 1.0 }),
         createServerNode('node2', { contrast: 20 }),
@@ -382,7 +362,6 @@ const fixtures: DualPathFixture[] = [
         { from: 'input', to: 'node1' },
         { from: 'node1', to: 'output' },
       ],
-      geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
     },
     expectedExposure: 1.0, // From node1
     expectedContrast: 0, // node2 not in chain
