@@ -797,13 +797,6 @@ class DevelopManager implements EditToolManager {
       },
 
       toneMapper: this.toneMapper,
-      geometry: {
-        rotation: this.geoRotation,
-        distortion: this.geoDistortion,
-        vertical: this.geoVertical,
-        horizontal: this.geoHorizontal,
-        scale: this.geoScale,
-      },
       curves: JSON.parse(JSON.stringify(this.curves)),
       curveEndpoints: JSON.parse(JSON.stringify(this.curveEndpoints)),
       colorWheels: JSON.parse(JSON.stringify(this.colorWheels)),

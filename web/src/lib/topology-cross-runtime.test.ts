@@ -25,6 +25,8 @@ beforeAll(() => {
  */
 function coreFixtureToWeb(coreGraph: any): WebNodeGraph {
   return {
+    version: 2,
+    selectedNodeId: "",
     nodes: coreGraph.nodes.map((node: any) => ({
       id: node.id,
       type: node.type,
@@ -34,6 +36,7 @@ function coreFixtureToWeb(coreGraph: any): WebNodeGraph {
       position: { x: 0, y: 0 },
     })),
     connections: coreGraph.connections,
+    geometry: { rotation: 0, distortion: 0, vertical: 0, horizontal: 0, scale: 1 },
   };
 }
 

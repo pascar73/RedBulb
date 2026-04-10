@@ -549,7 +549,7 @@ self.onmessage = (e: MessageEvent<ExportWorkerRequest>) => {
       const idx = i * 3;
       let [L, a, b] = linearRgbToOklab(linear[idx], linear[idx + 1], linear[idx + 2]);
 
-      const C = Math.sqrt(a * a + b * b);
+      let C = Math.sqrt(a * a + b * b);
       let h = Math.atan2(b, a) * 180 / Math.PI;
       if (h < 0) h += 360;
 
