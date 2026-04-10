@@ -99,11 +99,11 @@ describe('Node Graph v2 acceptance tests', () => {
 
     const upToN2 = evaluateNodeGraph(g, { stopAtNodeId: 'N2' });
     expect(upToN2.evaluatedNodeIds).toEqual(['N1', 'N2']);
-    expect(upToN2.flattenedState.basic.exposure).toBe(0.8);
-    expect(upToN2.flattenedState.basic.contrast).toBe(5);
-    expect(upToN2.flattenedState.color.saturation).toBe(10);
+    expect(upToN2.flattenedState.exposure).toBe(0.8);
+    expect(upToN2.flattenedState.contrast).toBe(5);
+    expect(upToN2.flattenedState.saturation).toBe(10);
     // N3's shadows should not be applied
-    expect(upToN2.flattenedState.basic.shadows).toBe(0);
+    expect(upToN2.flattenedState.shadows).toBe(0);
   });
 
   it('5) Empty graph safety (identity/no crash)', () => {
@@ -192,7 +192,7 @@ describe('Node Graph v2 acceptance tests', () => {
     g.selectedNodeId = 'N3';
 
     const changed = evaluateNodeGraph(g);
-    expect(changed.flattenedState.basic.exposure).toBe(1.25);
+    expect(changed.flattenedState.exposure).toBe(1.25);
     expect(changed.evaluatedNodeIds).toEqual(['N1', 'N2']);
 
     // "undo"
@@ -201,7 +201,7 @@ describe('Node Graph v2 acceptance tests', () => {
 
     expect(restored.selectedNodeId).toBe('N2');
     expect(restored.nodes.find((n) => n.id === 'N3')!.bypass).toBe(false);
-    expect(undone.flattenedState.basic.exposure).toBe(0.8);
+    expect(undone.flattenedState.exposure).toBe(0.8);
     expect(undone.evaluatedNodeIds).toEqual(['N1', 'N2', 'N3']);
   });
 
@@ -218,7 +218,7 @@ describe('Node Graph v2 acceptance tests', () => {
     const res = evaluateNodeGraph(g);
     
     // Red hue from N1 should be retained (not overwritten by N2/N3 defaults)
-    expect(res.flattenedState.hsl.red?.h).toBe(10);
+    expect(res.flattenedState.hsl!.red?.h).toBe(10);
   });
 
   it('12) Curve endpoint changes propagate (updated for nem-core semantics)', () => {
@@ -290,7 +290,7 @@ describe('Node Graph v2 acceptance tests', () => {
     // With nem-core semantics: N2's vignetteMidpoint=50 overwrites N1's 70
     // (Old: UI defaults were "inactive". New: only 0 = inactive)
     // This is MORE CONSISTENT: no UI knowledge in core evaluator
-    expect(res.flattenedState.effects.vignetteMidpoint).toBe(50);
+    expect(res.flattenedState.effects!.vignetteMidpoint).toBe(50);
   });
 
   it('15) Disconnected node graph emits explicit warning', () => {
