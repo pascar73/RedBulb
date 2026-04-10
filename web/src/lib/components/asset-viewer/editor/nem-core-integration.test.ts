@@ -34,10 +34,7 @@ describe('NEM Core Integration', () => {
           position: { x: 0, y: 0 },
           state: {
             ...createEmptyDevelopState(),
-            basic: {
-              ...createEmptyDevelopState().basic,
-              exposure: 1.0,
-            },
+            exposure: 1.0,
           },
         },
       ],
@@ -63,7 +60,7 @@ describe('NEM Core Integration', () => {
     // Verify result structure
     expect(result.flattenedState).toBeDefined();
     expect(result.evaluatedNodeIds).toEqual(['node1']);
-    expect(result.flattenedState.basic.exposure).toBe(1.0);
+    expect(result.flattenedState.exposure).toBe(1.0);
   });
 
   it('proves adapter converts between web and core types', () => {
@@ -78,12 +75,10 @@ describe('NEM Core Integration', () => {
           position: { x: 0, y: 0 },
           state: {
             ...createEmptyDevelopState(),
-            color: {
-              saturation: 15,
-              temperature: 5500,
-              tint: 10,
-              vibrance: 5,
-            },
+            saturation: 15,
+            temperature: 5500,
+            tint: 10,
+            vibrance: 5,
           },
         },
       ],
@@ -103,9 +98,9 @@ describe('NEM Core Integration', () => {
     const result = evaluateNodeGraph(graph);
 
     // Verify adapter correctly converted nested (web) → flat (core) → nested (web)
-    expect(result.flattenedState.color.saturation).toBe(15);
-    expect(result.flattenedState.color.temperature).toBe(5500);
-    expect(result.flattenedState.color.tint).toBe(10);
-    expect(result.flattenedState.color.vibrance).toBe(5);
+    expect(result.flattenedState.saturation).toBe(15);
+    expect(result.flattenedState.temperature).toBe(5500);
+    expect(result.flattenedState.tint).toBe(10);
+    expect(result.flattenedState.vibrance).toBe(5);
   });
 });
