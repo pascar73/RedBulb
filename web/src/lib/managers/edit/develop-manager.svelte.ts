@@ -758,7 +758,7 @@ class DevelopManager implements EditToolManager {
 
   /** Serialize current PANEL state as v1 (used internally and by workers) */
   /** Serialize current PANEL state as flat canonical format */
-  serialize(): Record<string, unknown> {
+  serialize(): DevelopState {
     return {
       // 13 top-level scalars
       exposure: this.exposure,
@@ -919,7 +919,7 @@ class DevelopManager implements EditToolManager {
 
     // HSL
     if (flat.hsl) {
-      for (const channel of Object.keys(this.hsl)) {
+      for (const channel of Object.keys(this.hsl) as Array<keyof typeof this.hsl>) {
         if (flat.hsl[channel]) {
           this.hsl[channel] = flat.hsl[channel];
         }
