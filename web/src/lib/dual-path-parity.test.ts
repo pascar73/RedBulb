@@ -91,9 +91,11 @@ function createServerNode(id: string, state: Partial<CoreDevelopState> = {}) {
   
   return {
     id,
+    label: id,
     type: 'develop' as const,
     state: { ...defaultState, ...state },
     bypass: false,
+    position: { x: 0, y: 0 },
   };
 }
 
