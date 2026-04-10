@@ -104,23 +104,23 @@ function createServerNode(id: string, state: Partial<CoreDevelopState> = {}) {
  */
 function normalizeWebOutput(state: any): any {
   // Extract only the photographic values (ignore version, defaults, etc.)
-  const temp = state.color?.temperature ?? 0;
-  
+  const temp = state.temperature ?? 0;
+
   return {
-    exposure: state.basic?.exposure ?? 0,
-    contrast: state.basic?.contrast ?? 0,
-    highlights: state.basic?.highlights ?? 0,
-    shadows: state.basic?.shadows ?? 0,
-    whites: state.basic?.whites ?? 0,
-    blacks: state.basic?.blacks ?? 0,
+    exposure: state.exposure ?? 0,
+    contrast: state.contrast ?? 0,
+    highlights: state.highlights ?? 0,
+    shadows: state.shadows ?? 0,
+    whites: state.whites ?? 0,
+    blacks: state.blacks ?? 0,
     // BUG: Web client initializes temperature to 0 instead of 6500
     // Normalize 0 → 6500 for parity comparison
     temperature: temp === 0 ? 6500 : temp,
-    tint: state.color?.tint ?? 0,
-    saturation: state.color?.saturation ?? 0,
-    vibrance: state.color?.vibrance ?? 0,
-    clarity: state.details?.clarity ?? 0,
-    dehaze: state.details?.dehaze ?? 0,
+    tint: state.tint ?? 0,
+    saturation: state.saturation ?? 0,
+    vibrance: state.vibrance ?? 0,
+    clarity: state.clarity ?? 0,
+    dehaze: state.dehaze ?? 0,
   };
 }
 
@@ -153,7 +153,7 @@ const fixtures: DualPathFixture[] = [
       selectedNodeId: "",
       nodes: [
         createWebNode('node1', {
-          basic: { exposure: 1.5, contrast: 20, highlights: -10 },
+          exposure: 1.5, contrast: 20, highlights: -10,
         }),
       ],
       connections: [
@@ -187,7 +187,7 @@ const fixtures: DualPathFixture[] = [
       selectedNodeId: "",
       nodes: [
         createWebNode('node1', {
-          color: { temperature: 5500, tint: 10, saturation: 15, vibrance: 5 },
+          temperature: 5500, tint: 10, saturation: 15, vibrance: 5,
         }),
       ],
       connections: [
@@ -221,8 +221,8 @@ const fixtures: DualPathFixture[] = [
       version: 2,
       selectedNodeId: "",
       nodes: [
-        createWebNode('node1', { basic: { exposure: 1.0, contrast: 20 } }),
-        createWebNode('node2', { basic: { exposure: 0, contrast: 30 } }),
+        createWebNode('node1', { exposure: 1.0, contrast: 20 }),
+        createWebNode('node2', { exposure: 0, contrast: 30 }),
       ],
       connections: [
         { from: 'input', to: 'node1' },
@@ -253,8 +253,8 @@ const fixtures: DualPathFixture[] = [
       version: 2,
       selectedNodeId: "",
       nodes: [
-        createWebNode('node1', { color: { temperature: 5500, saturation: 10 } }),
-        createWebNode('node2', { color: { temperature: 6500, saturation: 15 } }),
+        createWebNode('node1', { temperature: 5500, saturation: 10 }),
+        createWebNode('node2', { temperature: 6500, saturation: 15 }),
       ],
       connections: [
         { from: 'input', to: 'node1' },
@@ -285,9 +285,9 @@ const fixtures: DualPathFixture[] = [
       version: 2,
       selectedNodeId: "",
       nodes: [
-        createWebNode('node1', { basic: { exposure: 1.0, contrast: 20 } }),
-        createWebNode('node2', { basic: { contrast: 30, highlights: -10 } }),
-        createWebNode('node3', { basic: { exposure: 1.5, highlights: -15 } }),
+        createWebNode('node1', { exposure: 1.0, contrast: 20 }),
+        createWebNode('node2', { contrast: 30, highlights: -10 }),
+        createWebNode('node3', { exposure: 1.5, highlights: -15 }),
       ],
       connections: [
         { from: 'input', to: 'node1' },
@@ -344,8 +344,8 @@ const fixtures: DualPathFixture[] = [
       version: 2,
       selectedNodeId: "",
       nodes: [
-        createWebNode('node1', { basic: { exposure: 1.0 } }),
-        createWebNode('node2', { basic: { contrast: 20 } }), // Not connected
+        createWebNode('node1', { exposure: 1.0 }),
+        createWebNode('node2', { contrast: 20 }), // Not connected
       ],
       connections: [
         { from: 'input', to: 'node1' },
