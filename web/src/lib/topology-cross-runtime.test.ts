@@ -11,7 +11,7 @@ import { evaluateNodeGraph as webEvaluate } from './components/asset-viewer/edit
 import { NemEvaluatorService } from '../../../server/src/services/nem-evaluator.service';
 import { topologyFixtures } from '../../../packages/nem-core/src/topology-fixtures';
 import type { TopologyFixture } from '../../../packages/nem-core/src/topology-fixtures';
-import { coreToWeb } from './nem-core-adapter';
+import { createNeutralDevelopState } from "@redbulb/nem-core";
 import type { NodeGraph as WebNodeGraph } from './components/asset-viewer/editor/node-graph-types';
 
 let serverService: NemEvaluatorService;
@@ -31,7 +31,7 @@ function coreFixtureToWeb(coreGraph: any): WebNodeGraph {
       id: node.id,
       type: node.type,
       label: node.id,
-      state: coreToWeb(node.state),
+      state: node.state,
       bypass: node.bypass,
       position: { x: 0, y: 0 },
     })),

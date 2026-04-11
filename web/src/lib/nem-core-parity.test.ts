@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { evaluateNodeGraph as evaluateCore } from '@redbulb/nem-core';
 import type { NodeGraph, Node } from '@redbulb/nem-core';
-import { webToCore, coreToWeb } from './nem-core-adapter';
+
 import { createEmptyDevelopState } from './components/asset-viewer/editor/node-types';
 
 /**
