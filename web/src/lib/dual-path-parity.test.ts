@@ -4,7 +4,7 @@
  * Tests that web runtime path and server runtime path produce identical results
  * for the same input fixtures.
  * 
- * Web path: web graph (nested) → node-graph-evaluate.ts → adapter → nem-core → adapter → web result (nested)
+ * Web path: web graph (flat) → node-graph-evaluate.ts → nem-core → web result (flat)
  * Server path: core graph (flat) → NemEvaluatorService → nem-core → core result (flat)
  * 
  * Block 2B Task 5 (closure): Dual-path parity harness
@@ -442,7 +442,8 @@ describe('dual-path parity (web runtime vs server runtime)', () => {
       const webResult = webEvaluate(emptyFixture.webGraph);
       
       // Web validation should catch this before core evaluation
-      expect(webResult.warnings.some((w) => w.includes('validation'))).toBe(true);
+      // Validation errors reference edge requirements (e.g. "input must have exactly one outgoing edge.")
+      expect(webResult.warnings.some((w) => w.includes('edge'))).toBe(true);
     });
 
     it('disconnected node: web validation allows, server evaluates correctly', () => {
