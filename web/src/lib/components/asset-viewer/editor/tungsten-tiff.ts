@@ -259,9 +259,9 @@ function lzwCompress(data: Uint8Array): Uint8Array {
   }
 
   // String table as Map<string, number>
-  let table: Map<string, number>;
-  let nextCode: number;
-  let codeSize: number;
+  let table: Map<string, number> = new Map();
+  let nextCode: number = 258;
+  let codeSize: number = 9;
 
   function resetTable() {
     table = new Map();
