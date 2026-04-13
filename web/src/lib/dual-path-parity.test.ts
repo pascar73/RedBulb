@@ -12,7 +12,6 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { evaluateNodeGraph as webEvaluate } from './components/asset-viewer/editor/node-graph-evaluate';
-import { createNeutralDevelopState } from './nem-core-adapter';
 import { createEmptyDevelopState } from './components/asset-viewer/editor/node-types';
 import type { NodeGraph as WebNodeGraph } from './components/asset-viewer/editor/node-graph-types';
 import type { NodeGraph as ServerNodeGraph, DevelopState as CoreDevelopState } from '@redbulb/nem-core';
