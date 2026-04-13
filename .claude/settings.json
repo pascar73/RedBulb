@@ -1,0 +1,19 @@
+{
+  "project": {
+    "name": "RedBulb",
+    "type": "monorepo",
+    "packageManager": "pnpm"
+  },
+  "preferences": {
+    "testCommand": "pnpm test",
+    "lintCommand": "pnpm run check:typescript",
+    "buildCommand": "pnpm run build"
+  },
+  "ignorePatterns": [
+    "node_modules/",
+    "dist/",
+    ".svelte-kit/",
+    "*.log",
+    "tungsten-tiff.ts"
+  ]
+}
